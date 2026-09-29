@@ -1,0 +1,7 @@
+@extends('layouts.app')
+@section('title',$document->title)
+@section('subtitle','Review the extracted text and indexed evidence.')
+@section('content')
+<section class="agri-card p-6"><div class="section-heading"><x-status-badge :status="$document->status" /><a class="text-link" href="{{ route('admin.documents.download',$document) }}">Download original</a></div><form method="POST" action="{{ route('admin.documents.process',$document) }}" data-loading-label="Processing document embeddings…">@csrf<button class="agri-btn agri-btn-primary">Process / reprocess embeddings</button><p data-form-status role="status" class="muted text-sm mt-3"></p></form><details class="mt-6"><summary class="text-link cursor-pointer">View extracted text</summary><pre class="whitespace-pre-wrap text-sm mt-3 max-h-96 overflow-auto">{{ $document->content }}</pre></details><h2 class="mt-6">Document chunks ({{ $document->chunks->count() }})</h2>@forelse($document->chunks as $chunk)<details class="border-b py-4"><summary class="cursor-pointer">Chunk {{ $chunk->chunk_index+1 }} · {{ $chunk->embedding_model }}</summary><p class="whitespace-pre-wrap muted text-sm mt-3">{{ $chunk->content }}</p></details>@empty<p class="muted mt-3">Process embeddings to create searchable chunks.</p>@endforelse
+<form method="POST" action="{{ route('admin.documents.destroy',$document) }}" class="mt-6" data-confirm="Remove this document and its chunks from retrieval?">@csrf @method('DELETE')<button class="text-red-700 text-sm">Delete document</button></form></section>
+@endsection

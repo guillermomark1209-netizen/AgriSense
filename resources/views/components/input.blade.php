@@ -1,0 +1,2 @@
+@props(['name','label','type'=>'text','value'=>''])
+<div class="field"><label for="{{ $name }}">{{ $label }}</label><input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $type === 'password' || $type === 'file' ? '' : old($name,$value) }}" {{ $attributes->class(['form-input']) }} @error($name) aria-invalid="true" aria-describedby="{{ $name }}-error" @enderror>@error($name)<p id="{{ $name }}-error" class="field-error">{{ $message }}</p>@enderror</div>

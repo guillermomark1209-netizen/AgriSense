@@ -1,0 +1,7 @@
+@extends('layouts.app')
+@section('title','Settings')
+@section('subtitle','Make this workspace fit the way you grow.')
+@section('content')
+<div class="agri-card p-6"><h2>Offline access on this device</h2><p class="muted text-sm my-4">Optionally keep a monitoring snapshot on this browser. Anyone using this browser while offline can see the saved readings. Signing out removes snapshots. Changes and AI requests always require a connection.</p><label class="check-label"><input type="checkbox" data-offline-setting>Save monitoring snapshots on this trusted device</label><div class="flex flex-wrap gap-3 mt-6"><button type="button" class="agri-btn agri-btn-secondary" data-clear-snapshots>Clear saved snapshots</button><button type="button" class="agri-btn agri-btn-primary" data-install hidden>Install {{ config('app.name') }}</button></div><p data-settings-status role="status" class="muted text-sm mt-4"></p></div>
+<div class="agri-card p-6 mt-5"><h2>Appearance</h2><p class="muted text-sm my-4">Choose the color mode that is most comfortable for you. Your selection stays on this device.</p><button type="button" class="agri-btn agri-btn-secondary" data-theme-toggle aria-label="Switch to dark mode" aria-pressed="false"><i data-lucide="sun" class="theme-icon-light"></i><i data-lucide="moon" class="theme-icon-dark"></i><span data-theme-toggle-label>Use dark mode</span></button></div>
+@endsection

@@ -1,0 +1,18 @@
+#pragma once
+// Copy to config.h. Never commit the real values.
+#define WIFI_SSID "your-wifi-network"
+#define WIFI_PASSWORD "your-wifi-password"
+#define DEVICE_ID "your-registered-device-id"
+#define DEVICE_TOKEN "your-one-time-device-token"
+#define READING_URL "https://your-agrisense-host/api/device/readings"
+#define DHT_PIN 4
+// This example uses a real DHT22. Change the type for your hardware.
+#define DHT_TYPE DHT22
+#define SAMPLE_INTERVAL_MS 60000UL
+// Paste the PEM root CA used by your HTTPS server, not a leaf certificate.
+// Obtain it from your certificate issuer through a trusted channel.
+static const char ROOT_CA[] = R"PEM(
+-----BEGIN CERTIFICATE-----
+REPLACE_WITH_YOUR_TRUSTED_ROOT_CA
+-----END CERTIFICATE-----
+)PEM";

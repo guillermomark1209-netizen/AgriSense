@@ -1,0 +1,7 @@
+@extends('layouts.app')
+@section('title','Agricultural documents')
+@section('subtitle','Upload, inspect, and index evidence for retrieval.')
+@section('content')
+<form method="POST" action="{{ route('admin.documents.store') }}" enctype="multipart/form-data" class="agri-card p-6 form-stack">@csrf<h2>Upload a document</h2><div class="grid gap-4 md:grid-cols-2"><x-input name="title" label="Document title" required /><div class="field"><label for="source_id">Registered source</label><select name="source_id" id="source_id" required><option value="">Select a source</option>@foreach($sources as $source)<option value="{{ $source->id }}">{{ $source->title }}</option>@endforeach</select></div></div><x-input name="file" label="Searchable PDF or plain text · up to 5 MB" type="file" accept=".pdf,.txt" required /><p class="muted text-xs">Scanned PDFs need OCR before upload. Extracted text is reviewed separately from source verification.</p><button class="agri-btn agri-btn-primary self-start">Upload document</button></form>
+<div class="agri-card p-5 mt-6 table-wrap"><table><thead><tr><th>Document</th><th>Source</th><th>Status</th><th>Action</th></tr></thead><tbody>@forelse($documents as $document)<tr><td>{{ $document->title }}</td><td>{{ $document->source->title }}</td><td><x-status-badge :status="$document->status" /></td><td><a class="text-link" href="{{ route('admin.documents.show',$document) }}">Inspect document</a></td></tr>@empty<tr><td colspan="4">No documents yet.</td></tr>@endforelse</tbody></table>{{ $documents->links() }}</div>
+@endsection

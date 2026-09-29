@@ -1,0 +1,80 @@
+import Alpine from 'alpinejs';
+import { createIcons, Sprout, LayoutDashboard, Activity, Radio, BellRing, Sparkles, ChartNoAxesCombined, UserRound, ShieldCheck, Library, Files, Settings2, CircleHelp, LogOut, Leaf, Menu, Bell, CalendarDays, Plus, ArrowUpRight, ArrowRight, Thermometer, CloudRain, Droplets, FlaskConical, Sun, Moon, RefreshCw, BookOpenCheck, MapPin, TriangleAlert, BellOff, Send, Info, Trash2 } from 'lucide';
+const icons={Sprout,LayoutDashboard,Activity,Radio,BellRing,Sparkles,ChartNoAxesCombined,UserRound,ShieldCheck,Library,Files,Settings2,CircleHelp,LogOut,Leaf,Menu,Bell,CalendarDays,Plus,ArrowUpRight,ArrowRight,Thermometer,CloudRain,Droplets,FlaskConical,Sun,Moon,RefreshCw,BookOpenCheck,MapPin,TriangleAlert,BellOff,Send,Info,Trash2};
+import Chart from 'chart.js/auto';
+import { createClient } from '@supabase/supabase-js';
+window.Alpine=Alpine;
+Alpine.start();
+createIcons({icons});
+const themeColor=document.querySelector('meta[name="theme-color"]');
+function setTheme(theme){
+ document.documentElement.dataset.theme=theme;localStorage.setItem('agrisense-theme',theme);
+ if(themeColor)themeColor.content=theme==='dark'?'#10261c':'#1B4332';
+ for(const button of document.querySelectorAll('[data-theme-toggle]')){
+  const isDark=theme==='dark';button.setAttribute('aria-pressed',String(isDark));button.setAttribute('aria-label',isDark?'Switch to light mode':'Switch to dark mode');
+  const label=button.querySelector('[data-theme-toggle-label]');if(label)label.textContent=isDark?'Use light mode':'Use dark mode';
+ }
+}
+setTheme(document.documentElement.dataset.theme||'light');
+document.querySelectorAll('[data-theme-toggle]').forEach(button=>button.addEventListener('click',()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark')));
+const base=document.querySelector('meta[name="agrisense-base"]')?.content||'/';
+const owner=document.querySelector('meta[name="agrisense-user"]')?.content;
+const connection=document.querySelector('[data-connection]');
+function updateConnection(){if(connection){connection.textContent=navigator.onLine?'Network connected':'Offline Â· cached data only';connection.classList.toggle('offline',!navigator.onLine);}}
+window.addEventListener('online',updateConnection);window.addEventListener('offline',updateConnection);updateConnection();
+async function snapshot(mode,key,value){
+ const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('agrisense-offline',1);r.onupgradeneeded=()=>r.result.createObjectStore('snapshots');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+ return new Promise((resolve,reject)=>{const tx=db.transaction('snapshots',mode==='get'?'readonly':'readwrite'),store=tx.objectStore('snapshots');const r=mode==='get'?store.get(key):mode==='clear'?store.clear():store.put(value,key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});
+}
+async function clearSnapshots(){await snapshot('clear').catch(()=>{});localStorage.removeItem('agrisense-offline-owner');}
+async function initializePrivacy(){
+ if(owner&&localStorage.getItem('agrisense-offline-owner')&&localStorage.getItem('agrisense-offline-owner')!==owner){await clearSnapshots();localStorage.removeItem('agrisense-save-offline');}
+}
+const privacyReady=initializePrivacy();
+document.querySelector('[data-logout]')?.addEventListener('submit',async e=>{e.preventDefault();await clearSnapshots();localStorage.removeItem('agrisense-save-offline');e.target.submit();});
+const setting=document.querySelector('[data-offline-setting]');
+if(setting){setting.checked=localStorage.getItem('agrisense-save-offline')===owner;setting.addEventListener('change',async()=>{if(setting.checked){localStorage.setItem('agrisense-save-offline',owner);document.querySelector('[data-settings-status]').textContent='Enabled. Open Monitoring to save a snapshot on this device.';}else{localStorage.removeItem('agrisense-save-offline');await clearSnapshots();document.querySelector('[data-settings-status]').textContent='Offline snapshots removed.';}});}
+document.querySelector('[data-clear-snapshots]')?.addEventListener('click',async()=>{await clearSnapshots();document.querySelector('[data-settings-status]').textContent='Saved snapshots removed.';});
+document.querySelectorAll('form[data-confirm]').forEach(form=>form.addEventListener('submit',e=>{if(!confirm(form.dataset.confirm))e.preventDefault();}));
+for(const input of document.querySelectorAll('[data-image-input]')){let url;input.addEventListener('change',()=>{const form=input.closest('form'),preview=form?.querySelector('[data-image-preview]');if(url)URL.revokeObjectURL(url);if(!preview)return;const file=input.files?.[0];preview.hidden=!file;if(file){url=URL.createObjectURL(file);preview.src=url;if(input.hasAttribute('data-auto-submit'))form.requestSubmit();}});}
+document.querySelectorAll('form[data-loading-label]').forEach(form=>form.addEventListener('submit',()=>{const button=form.querySelector('button[type="submit"],button:not([type])');if(button)button.disabled=true;form.querySelector('[data-form-status]').textContent=form.dataset.loadingLabel;form.setAttribute('aria-busy','true');}));
+const refreshers=[];
+for(const card of document.querySelectorAll('[data-monitor]')){
+ const form=card.querySelector('[data-chart-filters]'),state=card.querySelector('[data-chart-state]'),stats=card.querySelector('[data-chart-stats]');let busy=false;
+ const chart=new Chart(card.querySelector('canvas'),{type:'line',data:{labels:[],datasets:[]},options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{usePointStyle:true,boxWidth:5,font:{size:10}}}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:6,font:{size:10}}},y:{grid:{color:'#edf0e8'},ticks:{font:{size:10}}}}}});
+ function draw(data,cached){
+  const groups=[...new Set(data.points.map(p=>p.device_id))],times=[...new Set(data.points.map(p=>p.time))].sort(),colors=['#40916c','#a17c47','#a0a73d','#689aa0','#b97d70'];
+  chart.data.labels=times.map(t=>new Date(t).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  chart.data.datasets=groups.map((device,i)=>{const values=new Map(data.points.filter(p=>p.device_id===device).map(p=>[p.time,p.value]));return{label:'Device '+device,data:times.map(t=>values.get(t)??null),borderColor:colors[i%colors.length],borderWidth:2,pointRadius:times.length<20?2:0,spanGaps:true,tension:.2};});chart.update();stats.replaceChildren();
+  for(const [label,value] of [['Minimum',data.statistics.minimum],['Average',data.statistics.average],['Maximum',data.statistics.maximum],['Latest observed',data.latest?.[form.elements.sensor.value]]]){const node=document.createElement('div'),strong=document.createElement('strong');node.textContent=label;strong.textContent=value==null?'â€”':Number(value).toFixed(1);node.append(strong);stats.append(node);}
+  const synced=new Date(data.synced_at).toLocaleString();state.classList.remove('error');
+  state.textContent=cached?'Offline snapshot Â· NOT LIVE Â· last synchronized '+synced:!data.points.length?'No readings in this period. Connect a device or change filters.':(data.stale?'Latest reading is stale. ':'Readings loaded. ')+(data.limited?'Showing the most recent 2,000 readings. ':'')+'Synchronized '+synced;
+ }
+ async function refresh(){
+  await privacyReady;if(busy||document.hidden)return;
+  if(form.elements.range.value==='custom'&&(!form.elements.from.value||!form.elements.to.value)){state.textContent='Choose both dates to load a custom range.';return;}
+  busy=true;const params=new URLSearchParams(new FormData(form));for(const[k,v]of[...params])if(!v)params.delete(k);const key=owner+':'+params.toString();card.setAttribute('aria-busy','true');state.textContent='Loading sensor historyâ€¦';
+  try{const response=await fetch(card.dataset.endpoint+'?'+params,{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(15000)});if(!response.ok){const error=await response.json().catch(()=>({}));state.textContent=response.status===401?'Session expired. Sign in again.':error.message||'Readings could not be loaded.';state.classList.add('error');chart.data.datasets=[];chart.update();stats.replaceChildren();return;}
+   const data=await response.json();draw(data,false);
+   if(localStorage.getItem('agrisense-save-offline')===owner){localStorage.setItem('agrisense-offline-owner',owner);await snapshot('put',key,data).catch(()=>{});await snapshot('put','latest',{...data,sensor:form.elements.sensor.selectedOptions[0].textContent}).catch(()=>{});}
+  }catch{const cached=await snapshot('get',key).catch(()=>null);if(cached&&localStorage.getItem('agrisense-save-offline')===owner)draw(cached,true);else{state.textContent='Connection unavailable. Any chart still shown is from a previous load, NOT LIVE. No saved snapshot matches these filters.';state.classList.add('error');}}
+  finally{busy=false;card.removeAttribute('aria-busy');}
+ }
+ form.addEventListener('submit',e=>{e.preventDefault();refresh();});form.addEventListener('change',()=>{card.querySelectorAll('[data-custom]').forEach(el=>el.hidden=form.elements.range.value!=='custom');refresh();});
+ refreshers.push(refresh);refresh();setInterval(refresh,30000);window.addEventListener('online',refresh);window.addEventListener('offline',()=>{state.textContent='Offline Â· chart shows a previous load, NOT LIVE.';});
+}
+if(owner&&refreshers.length){let client;async function connect(){try{const response=await fetch(base+'realtime/credentials',{headers:{Accept:'application/json'},cache:'no-store'});if(!response.ok)return;const data=await response.json();if(!client){client=createClient(data.url,data.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});await client.realtime.setAuth(data.token);client.channel(data.channel,{config:{private:true}}).on('broadcast',{event:'reading'},()=>refreshers.forEach(refresh=>refresh())).subscribe();}else await client.realtime.setAuth(data.token);}catch{/* Authenticated polling continues during Realtime outages. */}}connect();setInterval(connect,240000);}
+if('serviceWorker'in navigator&&window.isSecureContext)navigator.serviceWorker.register(base+'sw.js',{scope:base}).catch(()=>{});
+const aiChat=document.querySelector('[data-ai-chat]');
+if(aiChat){
+ const messages=aiChat.querySelector('[data-ai-messages]'),form=aiChat.querySelector('[data-ai-form]'),input=aiChat.querySelector('[data-ai-input]'),send=aiChat.querySelector('[data-ai-send]'),status=aiChat.querySelector('[data-ai-status]');
+ const welcome='Hello! I’m your AgriSense AI Assistant.';let history=[];
+ function add(role,content){const item=document.createElement('article'),label=document.createElement('span'),text=document.createElement('p');item.className='assistant-message '+(role==='user'?'user-message':'');label.className='section-kicker';label.textContent=role==='user'?'YOU':'AGRISENSE ASSISTANT';text.textContent=content;item.append(label,text);messages.append(item);messages.scrollTop=messages.scrollHeight;}
+ function addSources(sources){if(!Array.isArray(sources))return;const item=document.createElement('article'),label=document.createElement('span'),list=document.createElement('ul'),seen=new Set;item.className='assistant-sources';label.className='section-kicker';label.textContent='SOURCES';for(const source of sources){const title=typeof source?.title==='string'?source.title.trim():'';if(!title)continue;let url='';try{const parsed=new URL(typeof source.url==='string'?source.url:'');if(['http:','https:'].includes(parsed.protocol))url=parsed.href;}catch{}const key=title+'|'+url;if(seen.has(key))continue;seen.add(key);const entry=document.createElement('li');if(url){const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=title;entry.append(link);}else entry.textContent=title;list.append(entry);}if(!list.children.length)return;item.append(label,list);messages.append(item);messages.scrollTop=messages.scrollHeight;}
+ function reset(){history=[];messages.replaceChildren();add('assistant',welcome);status.textContent='';input.focus();}
+ reset();aiChat.querySelector('[data-ai-clear]').addEventListener('click',reset);
+ form.addEventListener('submit',async event=>{event.preventDefault();const message=input.value.trim();if(!message)return;const priorHistory=history.slice(-12);add('user',message);history.push({role:'user',content:message});input.value='';input.disabled=true;send.disabled=true;status.textContent='Thinking…';
+  try{const response=await fetch(aiChat.dataset.endpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]')?.content||''},body:JSON.stringify({message,history:priorHistory,crop_id:aiChat.dataset.cropId||null})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.message||'AI Assistant is currently unavailable. Please try again later.');add('assistant',data.message);addSources(data.sources);history.push({role:'assistant',content:data.message});status.textContent='';}catch(error){add('assistant',error instanceof Error?error.message:'AI Assistant is currently unavailable. Please try again later.');status.textContent='';}finally{input.disabled=false;send.disabled=false;input.focus();}
+ });
+}
+let installPrompt;const install=document.querySelector('[data-install]');window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;if(install)install.hidden=false;});install?.addEventListener('click',async()=>{if(!installPrompt)return;await installPrompt.prompt();installPrompt=null;install.hidden=true;});

@@ -1,0 +1,10 @@
+@props(['crops'=>collect(),'devices'=>collect()])
+<section class="agri-card chart-card" data-monitor data-endpoint="{{ route('monitoring.data') }}" data-owner="{{ auth()->id() }}"><div class="section-heading"><div><span class="section-kicker">A CLOSER LOOK</span><h2>Environmental overview</h2><p class="muted text-sm">Observed conditions across your growing spaces.</p></div><i data-lucide="chart-no-axes-combined"></i></div>
+<form class="chart-filters" data-chart-filters>
+<label>Crop<select name="crop_id"><option value="">All my crops</option>@foreach($crops as $crop)<option value="{{ $crop->id }}" @selected(request('crop_id')==$crop->id)>{{ $crop->name }} · {{ $crop->location }}</option>@endforeach</select></label>
+@if($devices->isNotEmpty())<label>Device<select name="device_id"><option value="">All my devices</option>@foreach($devices as $device)<option value="{{ $device->id }}">{{ $device->name }}</option>@endforeach</select></label>@endif
+<label>Sensor<select name="sensor">@foreach(config('agrisense.sensors') as $key=>$meta)<option value="{{ $key }}">{{ $meta['label'] }} ({{ $meta['unit'] }})</option>@endforeach</select></label>
+<label>Period<select name="range"><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="custom">Custom</option></select></label>
+<label data-custom hidden>From<input type="date" name="from"></label><label data-custom hidden>To<input type="date" name="to"></label>
+<button class="agri-btn agri-btn-secondary" type="submit"><i data-lucide="refresh-cw"></i>Refresh</button>
+</form><p class="chart-state" data-chart-state role="status">Loading sensor history…</p><div class="chart-area"><canvas aria-label="Sensor history line chart" role="img"></canvas></div><div class="chart-stats" data-chart-stats></div><p class="muted text-xs mt-3">Separate lines identify devices. Trends describe measurements, not a diagnosis.</p></section>

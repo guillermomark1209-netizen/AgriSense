@@ -1,0 +1,76 @@
+<?php
+
+use App\Http\Controllers\Admin\DocumentController;
+use App\Http\Controllers\Admin\KnowledgeBaseController;
+use App\Http\Controllers\Admin\ManagementController;
+use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\AIController;
+use App\Http\Controllers\AlertController;
+use App\Http\Controllers\AssistantController;
+use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\PasswordController;
+use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\CropController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\HistoryController;
+use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\MonitoringController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ThresholdController;
+use App\Services\RealtimeService;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', fn () => auth()->check() ? redirect()->route(auth()->user()->isAdmin() ? 'admin.dashboard' : 'dashboard') : view('auth.login'));
+Route::view('help', 'help')->name('help');
+Route::post('locale', [LocaleController::class, 'update'])->name('locale.update');
+Route::middleware('guest')->group(function () {
+    Route::get('login', [LoginController::class, 'showLoginForm'])->name('login');
+    Route::post('login', [LoginController::class, 'login'])->middleware('throttle:login');
+    Route::get('register', [RegisterController::class, 'showRegistrationForm'])->name('register');
+    Route::post('register', [RegisterController::class, 'register'])->middleware('throttle:5,1');
+    Route::get('forgot-password', [PasswordController::class, 'forgot'])->name('password.request');
+    Route::post('forgot-password', [PasswordController::class, 'email'])->middleware('throttle:3,1')->name('password.email');
+    Route::get('reset-password/{token}', [PasswordController::class, 'reset'])->name('password.reset');
+    Route::post('reset-password', [PasswordController::class, 'update'])->middleware('throttle:5,1')->name('password.update');
+});
+Route::middleware(['auth', 'track-user-activity'])->group(function () {
+    Route::post('logout', [LoginController::class, 'logout'])->name('logout');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::resource('crops', CropController::class)->only(['destroy'])->middleware('admin');
+    Route::resource('crops', CropController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
+    Route::get('crops/{crop}/image', [CropController::class, 'image'])->name('crops.image');
+    Route::post('crops/{crop}/thresholds', [ThresholdController::class, 'store'])->middleware('admin')->name('thresholds.store');
+    Route::delete('crops/{crop}/thresholds/{threshold}', [ThresholdController::class, 'destroy'])->middleware('admin')->name('thresholds.destroy');
+    Route::resource('devices', DeviceController::class)->except(['index', 'show'])->middleware('admin');
+    Route::resource('devices', DeviceController::class)->only(['index', 'show']);
+    Route::post('devices/{device}/token', [DeviceController::class, 'rotate'])->middleware('admin')->name('devices.token');
+    Route::get('monitoring', [MonitoringController::class, 'index'])->name('monitoring.index');
+    Route::get('monitoring/data', [MonitoringController::class, 'data'])->middleware('throttle:120,1')->name('monitoring.data');
+    Route::get('realtime/credentials', [RealtimeService::class, 'credentials'])->middleware('throttle:15,1')->name('realtime.credentials');
+    Route::get('alerts', [AlertController::class, 'index'])->name('alerts.index');
+    Route::patch('alerts/{alert}/resolve', [AlertController::class, 'resolve'])->name('alerts.resolve');
+    Route::get('ai', [AIController::class, 'index'])->name('ai.index');
+    Route::post('ai', [AIController::class, 'store'])->middleware('throttle:10,1')->name('ai.store');
+    Route::get('ai/images/{message}', [AIController::class, 'image'])->name('ai.image');
+    Route::get('ai-assistant', [AssistantController::class, 'index'])->name('ai.assistant');
+    Route::post('ai-assistant/chat', [AssistantController::class, 'chat'])->middleware('throttle:10,1')->name('ai.assistant.chat');
+    Route::get('history', [HistoryController::class, 'index'])->name('history.index');
+    Route::get('profile', [ProfileController::class, 'index'])->name('profile.index');
+    Route::post('profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::get('profile/image', [ProfileController::class, 'image'])->name('profile.image');
+    Route::view('settings', 'settings')->name('settings');
+    Route::prefix('admin')->name('admin.')->middleware('admin')->group(function () {
+        Route::resource('users', UserController::class)->except(['index', 'show']);
+        Route::get('dashboard', [App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
+        Route::resource('sources', KnowledgeBaseController::class)->only('index', 'store', 'update', 'destroy');
+        Route::post('sources/{source}/regenerate-embedding', [KnowledgeBaseController::class, 'regenerate'])->name('sources.regenerate');
+        Route::resource('documents', DocumentController::class)->only('index', 'store', 'show', 'destroy');
+        Route::post('documents/{document}/process', [DocumentController::class, 'process'])->middleware('throttle:5,1')->name('documents.process');
+        Route::get('documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+        Route::patch('users/{user}/role', [ManagementController::class, 'role'])->name('users.role');
+        Route::get('settings', [ManagementController::class, 'settings'])->name('settings');
+        Route::post('settings', [ManagementController::class, 'saveSettings']);
+        Route::get('{section}', [ManagementController::class, 'index'])->whereIn('section', ['users', 'crops', 'devices', 'sensor-data', 'alerts', 'conversations', 'audit-logs', 'ai-audit-logs'])->name('manage');
+    });
+});
