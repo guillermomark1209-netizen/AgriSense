@@ -54,7 +54,11 @@ Route::middleware(['auth', 'track-user-activity'])->group(function () {
     Route::post('ai', [AIController::class, 'store'])->middleware('throttle:10,1')->name('ai.store');
     Route::get('ai/images/{message}', [AIController::class, 'image'])->name('ai.image');
     Route::get('ai-assistant', [AssistantController::class, 'index'])->name('ai.assistant');
+    Route::post('ai-assistant/conversations', [AssistantController::class, 'create'])->name('ai.assistant.create');
     Route::post('ai-assistant/chat', [AssistantController::class, 'chat'])->middleware('throttle:10,1')->name('ai.assistant.chat');
+    Route::get('ai-assistant/images/{message}', [AssistantController::class, 'image'])->name('ai.assistant.image');
+    Route::delete('ai-assistant/conversations/{conversation}/messages', [AssistantController::class, 'clear'])->name('ai.assistant.clear');
+    Route::delete('ai-assistant/conversations/{conversation}', [AssistantController::class, 'destroy'])->name('ai.assistant.destroy');
     Route::get('history', [HistoryController::class, 'index'])->name('history.index');
     Route::get('profile', [ProfileController::class, 'index'])->name('profile.index');
     Route::post('profile', [ProfileController::class, 'update'])->name('profile.update');

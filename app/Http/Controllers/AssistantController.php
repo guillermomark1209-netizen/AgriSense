@@ -4,24 +4,60 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\AiProviderUnavailableException;
 use App\Http\Requests\SendAssistantMessageRequest;
+use App\Models\AIConversation;
+use App\Models\AIMessage;
 use App\Models\Crop;
 use App\Models\SensorReading;
 use App\Services\GeminiService;
 use App\Services\RagService;
 use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AssistantController extends Controller
 {
+    private const ConversationStatus = 'assistant_chat';
+
     public function index(Request $request): View
     {
         $crop = $request->filled('crop_id') ? Crop::query()->when(! $request->user()->isAdmin(), fn ($query) => $query->where('user_id', $request->user()->id))->findOrFail($request->integer('crop_id')) : null;
+        $conversation = $request->filled('conversation')
+            ? $request->user()->conversations()->where('status', self::ConversationStatus)->findOrFail($request->integer('conversation'))
+            : $request->user()->conversations()->where('status', self::ConversationStatus)->latest('updated_at')->first();
+        if (! $conversation) {
+            $conversation = $request->user()->conversations()->create([
+                'title' => 'New Chat',
+                'status' => self::ConversationStatus,
+            ]);
+        }
+        $recents = $request->user()->conversations()
+            ->where('status', self::ConversationStatus)
+            ->latest('updated_at')
+            ->get(['id', 'title', 'updated_at']);
+        $messages = $conversation?->messages()
+            ->with('sources')
+            ->get()
+            ->map(fn ($message) => [
+                'role' => $message->role,
+                'content' => $message->content,
+                'image_url' => $message->image_url ? route('ai.assistant.image', $message) : null,
+                'created_at' => $message->created_at->toIso8601String(),
+                'sources' => $message->sources
+                    ->filter(fn ($source) => filled($source->citation_text))
+                    ->map(fn ($source) => [
+                        'title' => $source->citation_text,
+                        'url' => $source->citation_url,
+                    ])->values(),
+            ])->values();
 
-        return view('ai.assistant', compact('crop'));
+        return view('ai.assistant', compact('crop', 'conversation', 'messages', 'recents'));
     }
 
     public function chat(SendAssistantMessageRequest $request, RagService $rag, GeminiService $gemini): JsonResponse
@@ -30,6 +66,34 @@ class AssistantController extends Controller
         set_time_limit(0);
 
         $crop = $request->filled('crop_id') ? Crop::query()->when(! $request->user()->isAdmin(), fn ($query) => $query->where('user_id', $request->user()->id))->findOrFail($request->integer('crop_id')) : null;
+        $uploadedImage = $request->file('image');
+        $question = $request->string('message')->trim()->toString();
+        if (blank($question)) {
+            $question = 'Please identify and analyze this crop image.';
+        }
+        $imagePath = null;
+        if ($uploadedImage) {
+            try {
+                $imagePath = $this->storeAssistantImage($uploadedImage, $request->user()->id);
+            } catch (\Throwable $exception) {
+                Log::error('AI assistant image could not be stored', [
+                    'user_id' => $request->user()->id,
+                    'exception' => $exception,
+                ]);
+
+                return response()->json(['message' => 'The image could not be uploaded. Please try again.'], 422);
+            }
+        }
+        $conversation = $this->assistantConversation($request, true);
+        $isFirstUserMessage = ! $conversation->messages()->where('role', 'user')->exists();
+        $conversation->messages()->create([
+            'role' => 'user',
+            'content' => $question,
+            'image_url' => $imagePath,
+        ]);
+        if ($isFirstUserMessage) {
+            $conversation->update(['title' => $this->conversationTitle($question, $uploadedImage !== null)]);
+        }
         $reading = null;
 
         try {
@@ -44,17 +108,31 @@ class AssistantController extends Controller
         }
 
         try {
-            $question = $request->string('message')->toString();
             $history = collect($request->validated('history', []))->take(-4)->values()->all();
             $questionType = $this->questionType($question, $history);
             $imageAnalysis = null;
             $image = null;
-            $usesImage = $crop?->image_url && in_array($questionType, ['image_visual', 'image_agricultural'], true);
-            if ($usesImage) {
-                $image = $this->cropImage($crop);
-                if ($questionType === 'image_agricultural') {
-                    $imageAnalysis = $gemini->analyzeCropImageData($image['contents'], $image['mime_type'], $crop->name);
+            if ($uploadedImage) {
+                $questionType = $questionType === 'agricultural_knowledge' ? 'image_agricultural' : 'image_visual';
+                $image = $uploadedImage;
+            }
+            $conversationImage = ! $uploadedImage ? $this->conversationImage($conversation) : null;
+            $usesConversationImage = $conversationImage && ($this->referencesConversationImage($question)
+                || in_array($questionType, ['image_visual', 'image_agricultural'], true));
+            if ($usesConversationImage) {
+                if ($questionType === 'agricultural_knowledge' || $this->isImageManagementQuestion($question)) {
+                    $questionType = 'image_agricultural';
                 }
+                $image = $conversationImage;
+            }
+            $usesCropImage = ! $uploadedImage && ! $usesConversationImage && $crop?->image_url && in_array($questionType, ['image_visual', 'image_agricultural'], true);
+            if ($usesCropImage) {
+                $image = $this->cropImage($crop);
+            }
+            if ($image && $questionType === 'image_agricultural') {
+                $imageAnalysis = $image instanceof UploadedFile
+                    ? $gemini->analyzeCropImage($image)
+                    : $gemini->analyzeCropImageData($image['contents'], $image['mime_type'], $crop?->name);
             }
 
             $chunks = collect();
@@ -75,28 +153,28 @@ class AssistantController extends Controller
             ]);
 
             if ($chunks->isEmpty() && $this->requiresVerifiedRag($question, $questionType)) {
-                return response()->json(['message' => 'I could not find enough verified information in the knowledge base.', 'sources' => []]);
-            }
-
-            $context = [
-                'crop' => $crop?->only(['name', 'variety', 'growth_stage']),
-                'reading' => $reading?->only([...array_keys(config('agrisense.sensors')), 'reading_at']),
-                'stale' => ! $reading || $reading->reading_at->lt(now()->subMinutes(config('agrisense.stale_minutes'))),
-            ];
-            $evidence = $chunks->map(fn ($source) => [
-                'chunk_id' => $source->id,
-                'text' => $source->content,
-                'title' => $source->title,
-                'source_url' => $source->source_url,
-            ])->all();
-            if ($imageAnalysis) {
-                $context['image_observation'] = [
-                    'crop' => $imageAnalysis['crop_name'],
-                    'visible_symptoms' => $imageAnalysis['visible_symptoms'],
-                    'possible_problems' => $imageAnalysis['possible_problems'],
+                $answer = ['answer' => 'I could not find enough verified information in the knowledge base.'];
+            } else {
+                $context = [
+                    'crop' => $crop?->only(['name', 'variety', 'growth_stage']),
+                    'reading' => $reading?->only([...array_keys(config('agrisense.sensors')), 'reading_at']),
+                    'stale' => ! $reading || $reading->reading_at->lt(now()->subMinutes(config('agrisense.stale_minutes'))),
                 ];
+                $evidence = $chunks->map(fn ($source) => [
+                    'chunk_id' => $source->id,
+                    'text' => $source->content,
+                    'title' => $source->title,
+                    'source_url' => $source->source_url,
+                ])->all();
+                if ($imageAnalysis) {
+                    $context['image_observation'] = [
+                        'crop' => $imageAnalysis['crop_name'],
+                        'visible_symptoms' => $imageAnalysis['visible_symptoms'],
+                        'possible_problems' => $imageAnalysis['possible_problems'],
+                    ];
+                }
+                $answer = $gemini->generateResponse($this->questionWithImageObservations($question, $imageAnalysis), $evidence, $context, $image, $questionType, $history);
             }
-            $answer = $gemini->generateResponse($this->questionWithImageObservations($question, $imageAnalysis), $evidence, $context, $image, $questionType, $history);
         } catch (AiProviderUnavailableException $exception) {
             report($exception);
 
@@ -107,16 +185,173 @@ class AssistantController extends Controller
             return response()->json(['message' => 'The AI response could not be processed. Please try again.'], 422);
         }
 
+        $sources = $chunks
+            ->filter(fn ($source) => filled($source->title))
+            ->unique(fn ($source) => trim($source->title).'|'.($source->source_url ?? ''))
+            ->map(fn ($source) => [
+                'title' => trim($source->title),
+                'url' => $source->source_url,
+            ])->values();
+        try {
+            DB::transaction(function () use ($conversation, $answer, $sources): void {
+                $message = $conversation->messages()->create([
+                    'role' => 'assistant',
+                    'content' => $answer['answer'],
+                ]);
+                foreach ($sources as $source) {
+                    $message->sources()->create([
+                        'citation_text' => $source['title'],
+                        'citation_url' => $source['url'],
+                    ]);
+                }
+                $conversation->touch();
+            });
+        } catch (\Throwable $exception) {
+            Log::error('AI assistant response could not be saved', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $request->user()->id,
+                'exception' => $exception,
+            ]);
+
+            return response()->json(['message' => 'The AI response could not be saved. Please try again.'], 500);
+        }
+
         return response()->json([
             'message' => $answer['answer'],
-            'sources' => $chunks
-                ->filter(fn ($source) => filled($source->title))
-                ->unique(fn ($source) => trim($source->title).'|'.($source->source_url ?? ''))
-                ->map(fn ($source) => [
-                    'title' => trim($source->title),
-                    'url' => $source->source_url,
-                ])->values(),
+            'sources' => $sources,
         ]);
+    }
+
+    public function create(Request $request): JsonResponse
+    {
+        $conversation = $request->user()->conversations()->create([
+            'title' => 'New Chat',
+            'status' => self::ConversationStatus,
+        ]);
+
+        return response()->json([
+            'id' => $conversation->id,
+            'url' => route('ai.assistant', ['conversation' => $conversation->id]),
+        ], 201);
+    }
+
+    public function clear(Request $request, AIConversation $conversation): JsonResponse
+    {
+        abort_unless($conversation->user_id === $request->user()->id && $conversation->status === self::ConversationStatus, 404);
+        $conversation->messages()->delete();
+        $conversation->touch();
+
+        return response()->json([], 204);
+    }
+
+    public function destroy(Request $request, AIConversation $conversation): JsonResponse
+    {
+        abort_unless($conversation->user_id === $request->user()->id && $conversation->status === self::ConversationStatus, 404);
+
+        $imagePaths = $conversation->messages()
+            ->whereNotNull('image_url')
+            ->pluck('image_url')
+            ->filter(fn (string $path): bool => str_starts_with($path, 'plant-analysis/'))
+            ->unique()
+            ->values();
+        $sharedImagePaths = AIMessage::query()
+            ->whereIn('image_url', $imagePaths)
+            ->where('conversation_id', '!=', $conversation->id)
+            ->pluck('image_url');
+        $exclusiveImagePaths = $imagePaths->diff($sharedImagePaths);
+
+        DB::transaction(fn () => $conversation->delete());
+
+        foreach ($exclusiveImagePaths as $imagePath) {
+            try {
+                $this->deleteAssistantImage($imagePath);
+            } catch (\Throwable $exception) {
+                Log::warning('AI assistant image could not be deleted', [
+                    'conversation_id' => $conversation->id,
+                    'image_path' => $imagePath,
+                    'exception' => $exception,
+                ]);
+            }
+        }
+
+        return response()->json([], 204);
+    }
+
+    public function image(Request $request, AIMessage $message): RedirectResponse|StreamedResponse
+    {
+        abort_unless($message->conversation->user_id === $request->user()->id
+            && $message->conversation->status === self::ConversationStatus
+            && $message->image_url
+            && str_starts_with($message->image_url, 'plant-analysis/'), 404);
+
+        if (str_starts_with($message->image_url, 'plant-analysis/local/')) {
+            abort_unless(Storage::disk('local')->exists($message->image_url), 404);
+
+            return Storage::disk('local')->response($message->image_url);
+        }
+
+        return redirect()->away(app(SupabaseStorageService::class)->signedUrl($message->image_url));
+    }
+
+    private function assistantConversation(Request $request, bool $create = false): ?AIConversation
+    {
+        $conversation = $request->filled('conversation_id')
+            ? $request->user()->conversations()->where('status', self::ConversationStatus)->findOrFail($request->integer('conversation_id'))
+            : $request->user()->conversations()->where('status', self::ConversationStatus)->latest('updated_at')->first();
+
+        if ($conversation || ! $create) {
+            return $conversation;
+        }
+
+        return $request->user()->conversations()->create([
+            'title' => 'New Chat',
+            'status' => self::ConversationStatus,
+        ]);
+    }
+
+    private function conversationTitle(string $question, bool $hasImage): string
+    {
+        if ($hasImage && $question === 'Please identify and analyze this crop image.') {
+            return 'Crop Image Analysis';
+        }
+
+        $crop = collect(['lettuce', 'cabbage', 'tomato', 'pepper', 'eggplant', 'rice', 'corn'])
+            ->first(fn (string $crop): bool => str_contains(mb_strtolower($question), $crop));
+        if ($crop && preg_match('/\bdisease|pest|holes?|spots?|damage\b/i', $question) === 1) {
+            return ucfirst($crop).' Disease';
+        }
+        if ($crop && preg_match('/\bwater|watering|irrigat\b/i', $question) === 1) {
+            return ucfirst($crop).' Watering';
+        }
+
+        $title = preg_replace('/[^\pL\pN\s]/u', '', $question) ?: 'New Chat';
+
+        return mb_strimwidth(mb_convert_case(trim($title), MB_CASE_TITLE), 0, 48, '…');
+    }
+
+    private function storeAssistantImage(UploadedFile $image, int $ownerId): string
+    {
+        if (config('agrisense.supabase_url') && config('agrisense.supabase_key')) {
+            return app(SupabaseStorageService::class)->upload($image, 'plant-analysis', $ownerId);
+        }
+
+        $path = $image->store('plant-analysis/local/'.$ownerId, 'local');
+        if ($path === false) {
+            throw new \RuntimeException('The assistant image could not be written to local storage.');
+        }
+
+        return $path;
+    }
+
+    private function deleteAssistantImage(string $imagePath): void
+    {
+        if (str_starts_with($imagePath, 'plant-analysis/local/')) {
+            Storage::disk('local')->delete($imagePath);
+
+            return;
+        }
+
+        app(SupabaseStorageService::class)->delete($imagePath);
     }
 
     /**
@@ -152,6 +387,54 @@ class AssistantController extends Controller
     {
         return $questionType === 'image_agricultural'
             || preg_match('/\b(treat|treatment|pesticide|chemical|dose|spray|disease|diagnos)\b/i', $question) === 1;
+    }
+
+    private function referencesConversationImage(string $question): bool
+    {
+        return preg_match('/\b(this plant|this crop|the image|this image|the photo|this photo|the leaves?|this leaf|it|that|them)\b/i', $question) === 1;
+    }
+
+    private function isImageManagementQuestion(string $question): bool
+    {
+        return preg_match('/\b(pest|disease|cause|treat|treatment|manage|management|prevent|control|what should i do|how (?:can|should) i)\b/i', $question) === 1;
+    }
+
+    /**
+     * @return array{contents: string, mime_type: string}|null
+     */
+    private function conversationImage(AIConversation $conversation): ?array
+    {
+        $message = $conversation->messages()
+            ->where('role', 'user')
+            ->whereNotNull('image_url')
+            ->latest('id')
+            ->first();
+        if (! $message || ! str_starts_with($message->image_url, 'plant-analysis/')) {
+            return null;
+        }
+
+        try {
+            if (str_starts_with($message->image_url, 'plant-analysis/local/')) {
+                if (! Storage::disk('local')->exists($message->image_url)) {
+                    return null;
+                }
+                $contents = Storage::disk('local')->get($message->image_url);
+                $mimeType = Storage::disk('local')->mimeType($message->image_url) ?: 'application/octet-stream';
+            } else {
+                $contents = app(SupabaseStorageService::class)->download($message->image_url);
+                $mimeType = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents) ?: 'application/octet-stream';
+            }
+
+            return str_starts_with($mimeType, 'image/') ? ['contents' => $contents, 'mime_type' => $mimeType] : null;
+        } catch (\Throwable $exception) {
+            Log::warning('AI assistant conversation image could not be loaded', [
+                'conversation_id' => $conversation->id,
+                'message_id' => $message->id,
+                'exception' => $exception,
+            ]);
+
+            return null;
+        }
     }
 
     /**
