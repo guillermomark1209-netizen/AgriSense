@@ -43,7 +43,8 @@ RUN composer install \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader \
-    --no-progress
+    --no-progress \
+    -vvv
 
 # Copy Laravel application
 COPY . .
