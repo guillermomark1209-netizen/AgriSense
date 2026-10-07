@@ -1,11 +1,20 @@
 # ============================================================
-# Stage 1: Install Laravel PHP dependencies
+# Stage 1: Laravel PHP dependencies
 # ============================================================
-FROM composer:2 AS composer
+FROM dunglas/frankenphp:php8.4 AS php-builder
+
+RUN install-php-extensions \
+    pdo_pgsql \
+    mbstring \
+    bcmath \
+    intl \
+    opcache
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
 
-COPY composer.json composer.lock ./
+COPY . .
 
 RUN composer install \
     --no-dev \
@@ -34,7 +43,7 @@ RUN npm run build
 
 
 # ============================================================
-# Stage 3: Laravel + PHP 8.4 + FrankenPHP
+# Stage 3: Production Laravel container
 # ============================================================
 FROM dunglas/frankenphp:php8.4
 
@@ -47,16 +56,10 @@ RUN install-php-extensions \
 
 WORKDIR /app
 
-# Copy Composer dependencies
-COPY --from=composer /app/vendor ./vendor
+COPY --from=php-builder /app ./
 
-# Copy Laravel application
-COPY . .
-
-# Copy Vite production build
 COPY --from=frontend /app/public/build ./public/build
 
-# Laravel public directory
 ENV SERVER_NAME=:80
 
 EXPOSE 80
