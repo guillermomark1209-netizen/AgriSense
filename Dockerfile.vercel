@@ -1,5 +1,5 @@
 # ============================================================
-# Stage 1: Laravel PHP dependencies
+# Stage 1: Laravel dependencies
 # ============================================================
 FROM dunglas/frankenphp:php8.4 AS php-builder
 
@@ -10,22 +10,29 @@ RUN install-php-extensions \
     intl \
     opcache
 
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-
 WORKDIR /app
 
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+# Copy Laravel application
 COPY . .
 
+# Install PHP dependencies
 RUN composer install \
     --no-dev \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader \
     --no-progress \
-    -vvv
+    --no-scripts
+
+# Run Laravel Composer scripts after artisan exists
+RUN composer dump-autoload --optimize
+
 
 # ============================================================
-# Stage 2: Build Vite frontend
+# Stage 2: Build Vite
 # ============================================================
 FROM node:22-alpine AS frontend
 
@@ -43,7 +50,7 @@ RUN npm run build
 
 
 # ============================================================
-# Stage 3: Production Laravel container
+# Stage 3: Production
 # ============================================================
 FROM dunglas/frankenphp:php8.4
 
