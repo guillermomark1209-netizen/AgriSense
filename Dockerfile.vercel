@@ -8,7 +8,6 @@ RUN install-php-extensions \
     mbstring \
     bcmath \
     intl \
-    intl \
     opcache \
     zip
 
@@ -46,6 +45,7 @@ RUN npm ci
 
 COPY resources ./resources
 COPY vite.config.* ./
+COPY postcss.config.js tailwind.config.js ./
 COPY public ./public
 
 RUN npm run build
@@ -68,9 +68,11 @@ WORKDIR /app
 COPY --from=php-builder /app ./
 
 COPY --from=frontend /app/public/build ./public/build
+COPY Caddyfile /etc/caddy/Caddyfile
 
-ENV SERVER_NAME=:80
-
+ENV SERVER_NAME=:80 \
+    APP_ENV=production \
+    APP_DEBUG=false
 EXPOSE 80
 
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]

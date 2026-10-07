@@ -1,9 +1,18 @@
-:{$PORT} {
+:{$PORT:80} {
     root * /app/public
 
     encode gzip
 
-    php_server
+    @static {
+        file
+        not path *.php
+    }
 
-    file_server
+    handle @static {
+        file_server
+    }
+
+    handle {
+        php_server
+    }
 }
