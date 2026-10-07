@@ -8,7 +8,9 @@ RUN install-php-extensions \
     mbstring \
     bcmath \
     intl \
-    opcache
+    intl \
+    opcache \
+    zip
 
 WORKDIR /app
 
