@@ -1,0 +1,32 @@
+FROM dunglas/frankenphp:php8.3
+
+RUN install-php-extensions \
+    pdo_pgsql \
+    mbstring \
+    bcmath \
+    opcache \
+    intl
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --prefer-dist \
+    --optimize-autoloader
+
+COPY . .
+
+RUN php artisan config:clear
+RUN php artisan route:clear
+RUN php artisan view:clear
+
+ENV SERVER_NAME=:80
+
+EXPOSE 80
+
+CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
