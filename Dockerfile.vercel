@@ -1,32 +1,62 @@
+# ============================================================
+# Stage 1: Build Laravel frontend assets with Vite
+# ============================================================
+FROM node:22-alpine AS frontend
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm ci
+
+COPY resources ./resources
+COPY vite.config.* ./
+
+# Copy public because Vite may use files from public/
+COPY public ./public
+
+RUN npm run build
+
+
+# ============================================================
+# Stage 2: Laravel + PHP + FrankenPHP
+# ============================================================
 FROM dunglas/frankenphp:php8.3
 
+# Install PHP extensions required by Laravel + PostgreSQL
 RUN install-php-extensions \
     pdo_pgsql \
     mbstring \
     bcmath \
-    opcache \
-    intl
+    intl \
+    opcache
 
+# Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
 
+# Copy Composer files first for Docker layer caching
 COPY composer.json composer.lock ./
 
+# Install Laravel production dependencies
 RUN composer install \
     --no-dev \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader
 
+# Copy Laravel application
 COPY . .
 
-RUN php artisan config:clear
-RUN php artisan route:clear
-RUN php artisan view:clear
+# Copy the Vite production build from Stage 1
+COPY --from=frontend /app/public/build ./public/build
 
+# Laravel should serve from the public directory
 ENV SERVER_NAME=:80
 
+# Vercel container HTTP port
 EXPOSE 80
 
+# Start FrankenPHP/Caddy
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
