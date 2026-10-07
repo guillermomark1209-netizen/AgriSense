@@ -17,12 +17,39 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['admin' => AdminMiddleware::class, 'track-user-activity' => TrackUserActivity::class]);
-        $middleware->redirectUsersTo(fn (Request $request): string => route($request->user()->isAdmin() ? 'admin.dashboard' : 'dashboard'));
-        $middleware->web(append: [SetLocale::class, PrivateResponse::class]);
+
+        // Trust Vercel's reverse proxy and forwarded HTTPS headers.
+        $middleware->trustProxies(
+            at: '*',
+            headers: Request::HEADER_X_FORWARDED_FOR |
+                     Request::HEADER_X_FORWARDED_HOST |
+                     Request::HEADER_X_FORWARDED_PORT |
+                     Request::HEADER_X_FORWARDED_PROTO
+        );
+
+        $middleware->alias([
+            'admin' => AdminMiddleware::class,
+            'track-user-activity' => TrackUserActivity::class,
+        ]);
+
+        $middleware->redirectUsersTo(
+            fn (Request $request): string =>
+                route(
+                    $request->user()->isAdmin()
+                        ? 'admin.dashboard'
+                        : 'dashboard'
+                )
+        );
+
+        $middleware->web(append: [
+            SetLocale::class,
+            PrivateResponse::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) =>
+                $request->is('api/*') || $request->expectsJson(),
         );
-    })->create();
+    })
+    ->create();
