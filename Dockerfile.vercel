@@ -74,5 +74,6 @@ ENV SERVER_NAME=:80 \
     APP_ENV=production \
     APP_DEBUG=false
 EXPOSE 80
-
+# gwapoko
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
+
