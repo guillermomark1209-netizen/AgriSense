@@ -38,14 +38,16 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 
 # Install Laravel production dependencies
-RUN composer install \
+RUN php -v && \
+    composer --version && \
+    composer validate --no-check-publish && \
+    composer install \
     --no-dev \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader \
     --no-progress \
     -vvv
-
 # Copy Laravel application
 COPY . .
 
