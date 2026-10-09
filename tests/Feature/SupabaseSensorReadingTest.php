@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\SensorReading;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -17,184 +19,135 @@ class SupabaseSensorReadingTest extends TestCase
         parent::setUp();
         $this->withoutVite();
         Http::preventStrayRequests();
-        config([
-            'agrisense.supabase_url' => 'https://example.supabase.co',
-            'agrisense.supabase_sensor_key' => 'test-server-secret-key',
-            'agrisense.supabase_sensor_device_id' => 3,
-            'agrisense.supabase_sensor_device_identifier' => 'agrisense-esp32-001',
-            'agrisense.supabase_sensor_crop_id' => 2,
-        ]);
     }
 
-    private function assignedDevice(User $user): Device
+    private function device(User $owner, string $identifier): Device
     {
-        $crop = $user->crops()->create([
-            'name' => 'Lettuce',
-            'scientific_name' => 'Lactuca sativa',
-            'variety' => 'Green Leaf',
-            'planting_date' => '2026-08-01',
-            'growth_stage' => 'Vegetative',
-            'location' => 'Plot A',
-            'status' => 'unknown',
-        ]);
-
-        return $user->devices()->create([
-            'crop_id' => $crop->id,
-            'device_id' => 'agrisense-esp32-001',
-            'name' => 'ESP32',
+        return $owner->devices()->create([
+            'device_id' => $identifier,
+            'name' => $identifier,
             'status' => 'offline',
             'is_active' => true,
         ]);
     }
 
-    public function test_owner_can_poll_latest_supabase_reading_without_receiving_server_key(): void
+    private function grant(User $user, Device $device, bool $selected = false): void
     {
-        $device = $this->assignedDevice($user = User::factory()->create());
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response([[
-            'device_id' => 3,
-            'reading_at' => now()->toIso8601String(),
-            'soil_moisture' => 41,
-            'soil_temperature' => 22.4,
-            'air_temperature' => 27.2,
-            'air_humidity' => 68,
-            'light_intensity' => 720,
-            'light_percent' => 53,
-            'soil_ph' => 6.4,
-            'pump' => false,
-        ]])]);
-
-        $response = $this->actingAs($user)->getJson(route('monitoring.latest', ['device_id' => $device->id]));
-
-        $response->assertOk()
-            ->assertJsonPath('reading.soil_moisture', 41)
-            ->assertJsonPath('reading.soil_temperature', 22.4)
-            ->assertJsonPath('reading.air_temperature', 27.2)
-            ->assertJsonPath('reading.air_humidity', 68)
-            ->assertJsonPath('reading.pump', false)
-            ->assertJsonPath('device_online', true)
-            ->assertJsonPath('active_devices', 1)
-            ->assertJsonMissing(['test-server-secret-key']);
-        $this->assertTrue($device->fresh()->online);
-        Http::assertSent(fn ($request) => $request->hasHeader('apikey', 'test-server-secret-key')
-            && ! $request->hasHeader('Authorization')
-            && str_contains($request->url(), 'device_id=eq.3')
-            && str_contains($request->url(), 'crop_id=eq.2')
-            && str_contains($request->url(), 'order=reading_at.desc'));
-    }
-
-    public function test_dashboard_renders_latest_supabase_sensor_values_and_pump_state(): void
-    {
-        $user = User::factory()->create();
-        $this->assignedDevice($user);
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response([[
-            'device_id' => 3,
-            'reading_at' => now()->toIso8601String(),
-            'soil_moisture' => 41,
-            'soil_temperature' => 22.4,
-            'air_temperature' => 27.2,
-            'air_humidity' => 68,
-            'light_intensity' => 720,
-            'light_percent' => 53,
-            'soil_ph' => 6.4,
-            'pump' => true,
-        ]])]);
-
-        $this->actingAs($user)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertSee('27.2')
-            ->assertSee('68.0')
-            ->assertSee('53.0')
-            ->assertSee('720.0')
-            ->assertSee('Pump: <strong data-pump-status>On</strong>', false);
-    }
-
-    public function test_device_list_uses_supabase_observation_time_for_online_status(): void
-    {
-        $user = User::factory()->create();
-        $this->assignedDevice($user);
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response([[
-            'device_id' => 3,
-            'reading_at' => now()->toIso8601String(),
-        ]])]);
-
-        $this->actingAs($user)
-            ->get('/devices')
-            ->assertOk()
-            ->assertSee('Online')
-            ->assertSee('Last contact:');
-    }
-
-    public function test_farmer_cannot_poll_another_owners_device(): void
-    {
-        $device = $this->assignedDevice(User::factory()->create());
-        Http::fake();
-
-        $this->actingAs(User::factory()->create())
-            ->getJson(route('monitoring.latest', ['device_id' => $device->id]))
-            ->assertNotFound();
-
-        Http::assertNothingSent();
-    }
-
-    public function test_historical_supabase_readings_are_sorted_and_use_actual_sensor_values(): void
-    {
-        $device = $this->assignedDevice($user = User::factory()->create());
-        $older = now()->subHours(2)->toIso8601String();
-        $newer = now()->subHour()->toIso8601String();
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response([
-            ['device_id' => 3, 'reading_at' => $newer, 'soil_moisture' => 48],
-            ['device_id' => 3, 'reading_at' => $older, 'soil_moisture' => 43],
-        ])]);
-
-        $response = $this->actingAs($user)->getJson(route('monitoring.data', [
+        DB::table('device_user_access')->insert([
+            'user_id' => $user->id,
             'device_id' => $device->id,
-            'sensor' => 'soil_moisture',
-            'range' => '24h',
-        ]));
-
-        $response->assertOk()
-            ->assertJsonCount(2, 'points')
-            ->assertJsonPath('points.0.value', 43)
-            ->assertJsonPath('points.1.value', 48)
-            ->assertJsonPath('statistics.average', 45.5);
+            'is_selected' => $selected,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
-    public function test_supabase_errors_return_unavailable_state_without_fabricated_readings(): void
+    public function test_owner_sees_existing_device_without_discovery_or_an_access_record(): void
     {
-        $device = $this->assignedDevice($user = User::factory()->create());
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response(['message' => 'denied'], 500)]);
+        $owner = User::factory()->create();
+        $device = $this->device($owner, 'DYNAMIC-ESP-1');
+        $privateDevice = $this->device(User::factory()->create(), 'PRIVATE-ESP');
 
-        $this->actingAs($user)
-            ->getJson(route('monitoring.latest', ['device_id' => $device->id]))
-            ->assertServiceUnavailable()
-            ->assertJsonPath('message', 'Supabase rejected the sensor read.')
-            ->assertJsonPath('upstream_status', 500);
-    }
-
-    public function test_dashboard_explains_when_the_server_side_supabase_key_is_missing(): void
-    {
-        $device = $this->assignedDevice($user = User::factory()->create());
-        config(['agrisense.supabase_sensor_key' => null]);
-
-        $this->actingAs($user)
-            ->getJson(route('monitoring.latest', ['device_id' => $device->id]))
-            ->assertServiceUnavailable()
-            ->assertJsonPath('configured', false)
-            ->assertJsonPath('message', 'Add SUPABASE_SENSOR_SECRET_KEY to .env, then clear Laravel config cache.');
-
-        Http::assertNothingSent();
-    }
-
-    public function test_empty_supabase_result_is_reported_as_stale_with_no_reading(): void
-    {
-        $device = $this->assignedDevice($user = User::factory()->create());
-        Http::fake(['https://example.supabase.co/rest/v1/sensor_readings*' => Http::response([])]);
-
-        $this->actingAs($user)
-            ->getJson(route('monitoring.latest', ['device_id' => $device->id]))
+        $this->actingAs($owner)->get('/devices')
             ->assertOk()
-            ->assertJsonPath('reading', null)
-            ->assertJsonPath('stale', true);
+            ->assertSee('1 devices available to you')
+            ->assertSee('DYNAMIC-ESP-1')->assertDontSee('Device Discovery')->assertDontSee('data-open-device-dialog', false)->assertSee('Add Device');
+
+        $this->getJson(route('devices.index'))
+            ->assertOk()
+            ->assertJsonCount(1, 'devices')
+            ->assertJsonPath('devices.0.id', $device->id)
+            ->assertJsonPath('devices.0.device_id', 'DYNAMIC-ESP-1')
+            ->assertJsonPath('devices.0.status', 'offline')
+            ->assertJsonMissing(['device_id' => 'PRIVATE-ESP']);
+
+        $this->post(route('devices.select', $device))->assertRedirect(route('devices.index'));
+
+        $this->assertSame($owner->id, $device->fresh()->user_id);
+        $this->assertDatabaseHas('device_user_access', ['user_id' => $owner->id, 'device_id' => $device->id, 'is_selected' => true]);
+        $this->assertDatabaseMissing('device_user_access', ['user_id' => $owner->id, 'device_id' => $privateDevice->id]);
+        $this->get(route('devices.index'))->assertOk()->assertSee('1 devices available to you')->assertSee('Selected');
+    }
+
+    public function test_user_can_switch_to_a_device_that_was_explicitly_shared_with_them(): void
+    {
+        $owner = User::factory()->create();
+        $user = User::factory()->create(['password' => bcrypt('sensor-test-password')]);
+        $first = $this->device($owner, 'SHARED-FIRST');
+        $second = $this->device($owner, 'SHARED-SECOND');
+        $this->grant($user, $first, true);
+        $this->grant($user, $second);
+
+        $this->actingAs($user)->post(route('devices.select', $second))->assertRedirect(route('devices.index'));
+
+        $this->assertSame($owner->id, $second->fresh()->user_id);
+        $this->assertDatabaseHas('device_user_access', ['device_id' => $first->id, 'user_id' => $user->id, 'is_selected' => false]);
+        $this->assertDatabaseHas('device_user_access', ['device_id' => $second->id, 'user_id' => $user->id, 'is_selected' => true]);
+        $this->getJson(route('monitoring.latest'))->assertJsonPath('device.device_id', 'SHARED-SECOND');
+        $this->post(route('logout'))->assertRedirect(route('login'));
+        $this->post(route('login'), ['email' => $user->email, 'password' => 'sensor-test-password'])->assertRedirect(route('dashboard'));
+        $this->getJson(route('monitoring.latest'))->assertJsonPath('device.device_id', 'SHARED-SECOND');
+    }
+
+    public function test_user_cannot_list_or_claim_another_users_private_device(): void
+    {
+        $user = User::factory()->create();
+        $privateDevice = $this->device(User::factory()->create(), 'PRIVATE-ESP');
+
+        $this->actingAs($user)->getJson(route('devices.index'))
+            ->assertOk()->assertJsonCount(0, 'devices');
+        $this->post(route('devices.select', $privateDevice))->assertNotFound();
+        $this->post(route('devices.access', $privateDevice), ['user_id' => $user->id])->assertForbidden();
+        $this->assertDatabaseMissing('device_user_access', ['user_id' => $user->id, 'device_id' => $privateDevice->id]);
+        $this->getJson(route('monitoring.latest', ['device_id' => $privateDevice->id]))->assertNotFound();
+    }
+
+    public function test_admin_can_grant_device_access_without_changing_its_owner(): void
+    {
+        $owner = User::factory()->create();
+        $recipient = User::factory()->create();
+        $administrator = User::factory()->admin()->create();
+        $device = $this->device($owner, 'ADMIN-SHARED-ESP');
+
+        $this->actingAs($administrator)->post(route('devices.access', $device), ['user_id' => $recipient->id])
+            ->assertRedirect()->assertSessionHas('success', 'Device access granted.');
+
+        $this->assertSame($owner->id, $device->fresh()->user_id);
+        $this->assertDatabaseHas('device_user_access', ['user_id' => $recipient->id, 'device_id' => $device->id, 'is_selected' => false]);
+        $this->actingAs($recipient)->getJson(route('devices.index'))
+            ->assertOk()->assertJsonPath('devices.0.device_id', 'ADMIN-SHARED-ESP');
+    }
+
+    public function test_latest_reading_and_history_are_limited_to_the_selected_device(): void
+    {
+        $user = User::factory()->create();
+        $first = $this->device($user, 'FIRST-ESP');
+        $second = $this->device($user, 'SECOND-ESP');
+        $this->grant($user, $first, true);
+        $this->grant($user, $second);
+        SensorReading::query()->create(['device_id' => $first->id, 'air_temperature' => 23.2, 'reading_at' => now()->subMinutes(4)]);
+        SensorReading::query()->create(['device_id' => $first->id, 'air_temperature' => 25.4, 'reading_at' => now()]);
+        SensorReading::query()->create(['device_id' => $second->id, 'air_temperature' => 39.8, 'reading_at' => now()]);
+
+        $this->actingAs($user)->getJson(route('monitoring.latest'))
+            ->assertOk()->assertJsonPath('reading.air_temperature', 25.4)->assertJsonPath('device.device_id', 'FIRST-ESP')->assertJsonPath('status', 'online');
+        $this->getJson(route('monitoring.data', ['device_id' => $second->id]))->assertNotFound();
+        $this->get('/history')->assertOk()->assertSee('FIRST-ESP')->assertDontSee('SECOND-ESP');
+    }
+
+    public function test_admin_registration_keeps_owner_and_adds_the_registered_device_to_their_access_list(): void
+    {
+        $owner = User::factory()->create();
+        $administrator = User::factory()->admin()->create();
+
+        $this->actingAs($administrator)->post(route('devices.store'), [
+            'name' => 'New ESP32',
+            'device_id' => 'NEW-ESP-REGISTRATION',
+            'user_id' => $owner->id,
+        ])->assertSessionHasNoErrors()->assertSessionHas('device_token');
+
+        $device = Device::query()->where('device_id', 'NEW-ESP-REGISTRATION')->firstOrFail();
+        $this->assertSame($owner->id, $device->user_id);
+        $this->assertDatabaseHas('device_user_access', ['device_id' => $device->id, 'user_id' => $owner->id, 'is_selected' => true]);
     }
 }

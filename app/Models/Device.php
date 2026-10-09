@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Device extends Model
 {
@@ -22,24 +25,32 @@ class Device extends Model
         'crop_id',
         'device_id',
         'name',
+        'device_type',
+        'location',
+        'description',
         'status',
         'last_seen_at',
         'is_active',
         'battery_level',
     ];
 
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function crop()
+    public function crop(): BelongsTo
     {
         return $this->belongsTo(Crop::class);
     }
 
-    public function readings()
+    public function readings(): HasMany
     {
         return $this->hasMany(SensorReading::class);
+    }
+
+    public function authorizedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'device_user_access')->withPivot('is_selected')->withTimestamps();
     }
 }

@@ -9,7 +9,8 @@ class DevicePolicy
 {
     public function view(User $user, Device $device): bool
     {
-        return $device->user_id === $user->id || $user->hasRole('admin');
+        return $device->user_id === $user->id || $user->isAdmin()
+            || $device->authorizedUsers()->whereKey($user->id)->exists();
     }
 
     public function update(User $user, Device $device): bool

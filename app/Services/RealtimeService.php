@@ -15,6 +15,6 @@ class RealtimeService
         $payload = $encode(['role' => 'authenticated', 'agrisense_user_id' => (string) $request->user()->id, 'aud' => 'authenticated', 'iat' => time(), 'exp' => time() + 300]);
         $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', $header.'.'.$payload, config('agrisense.realtime_secret'), true)), '+/', '-_'), '=');
 
-        return response()->json(['url' => config('agrisense.supabase_url'), 'key' => config('agrisense.supabase_public_key'), 'token' => $header.'.'.$payload.'.'.$signature, 'channel' => 'farm:'.$request->user()->id]);
+        return response()->json(['url' => config('agrisense.supabase_url'), 'key' => config('agrisense.supabase_public_key'), 'token' => $header.'.'.$payload.'.'.$signature, 'channel' => 'farm:'.$request->user()->id, 'catalog_channel' => 'device-catalog']);
     }
 }

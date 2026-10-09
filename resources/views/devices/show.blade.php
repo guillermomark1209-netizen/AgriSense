@@ -3,7 +3,7 @@
 @section('subtitle', $device->device_id)
 @section('content')
 @if($sensorReadError)<div class="notice error" role="status">{{ $sensorReadError }}</div>@endif
-@if(! $usesSupabaseReadings && auth()->user()->isAdmin() && session('device_token'))
+@if(auth()->user()->isAdmin() && session('device_token'))
     <div class="notice success"><strong>Save this token on your device. It is shown only once.</strong><code class="block break-all mt-3">{{ session('device_token') }}</code></div>
 @endif
 <div class="agri-card p-6">
@@ -15,18 +15,12 @@
     </div>
     <p>Assigned crop: {{ $device->crop?->name ?? 'Unassigned' }}</p>
     <p class="muted mt-2">Last Supabase reading: {{ $device->last_seen_at?->format('d M Y, H:i:s') ?? 'No reading available' }}</p>
-    @if($usesSupabaseReadings)
-        <p class="mt-5 text-sm">This website reads sensor data from Supabase. The ESP32 sends readings directly to Supabase; it does not upload through this website.</p>
-    @else
-        <p class="mt-5 text-sm">Send readings over HTTPS to <code>{{ url('/api/device/readings') }}</code> with <code>Authorization: Bearer YOUR_DEVICE_TOKEN</code>.</p>
-        <a class="text-link mt-4" href="{{ route('help') }}">View device setup instructions</a>
-    @endif
+    <p class="mt-5 text-sm">Sensor readings are loaded for this device from the connected data store.</p>
+    <a class="text-link mt-4" href="{{ route('help') }}">View device setup instructions</a>
     @can('update', $device)
         <div class="flex flex-wrap gap-4 mt-6">
-            @unless($usesSupabaseReadings)
-                <form method="POST" action="{{ route('devices.token', $device) }}" data-confirm="Replace the token? The previous token will immediately stop working.">@csrf<button class="agri-btn agri-btn-secondary">Replace device token</button></form>
-            @endunless
-            <form method="POST" action="{{ route('devices.destroy', $device) }}" data-confirm="{{ $usesSupabaseReadings ? 'Deactivate website monitoring for this device?' : 'Disconnect this device and revoke its token?' }}">@csrf @method('DELETE')<button class="agri-btn agri-btn-secondary">{{ $usesSupabaseReadings ? 'Deactivate website monitoring' : 'Disconnect device' }}</button></form>
+            <form method="POST" action="{{ route('devices.token', $device) }}" data-confirm="Replace the token? The previous token will immediately stop working.">@csrf<button class="agri-btn agri-btn-secondary">Replace device token</button></form>
+            <form method="POST" action="{{ route('devices.destroy', $device) }}" data-confirm="Disconnect this device?">@csrf @method('DELETE')<button class="agri-btn agri-btn-secondary">Disconnect device</button></form>
         </div>
     @endcan
 </div>

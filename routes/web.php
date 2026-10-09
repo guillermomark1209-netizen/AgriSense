@@ -42,6 +42,10 @@ Route::middleware(['auth', 'track-user-activity'])->group(function () {
     Route::get('crops/{crop}/image', [CropController::class, 'image'])->name('crops.image');
     Route::post('crops/{crop}/thresholds', [ThresholdController::class, 'store'])->middleware('admin')->name('thresholds.store');
     Route::delete('crops/{crop}/thresholds/{threshold}', [ThresholdController::class, 'destroy'])->middleware('admin')->name('thresholds.destroy');
+    Route::get('devices/owner-crops', [DeviceController::class, 'ownerCrops'])->middleware('admin')->name('devices.owner-crops');
+    Route::post('devices/register', [DeviceController::class, 'store'])->middleware('throttle:10,1')->name('devices.register');
+    Route::post('devices/{device}/select', [DeviceController::class, 'select'])->middleware('throttle:30,1')->name('devices.select');
+    Route::post('devices/{device}/access', [DeviceController::class, 'grantAccess'])->middleware(['admin', 'throttle:30,1'])->name('devices.access');
     Route::resource('devices', DeviceController::class)->except(['index', 'show'])->middleware('admin');
     Route::resource('devices', DeviceController::class)->only(['index', 'show']);
     Route::post('devices/{device}/token', [DeviceController::class, 'rotate'])->middleware('admin')->name('devices.token');

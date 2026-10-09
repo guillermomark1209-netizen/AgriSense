@@ -33,7 +33,7 @@ async function initializePrivacy(){
 const privacyReady=initializePrivacy();
 const liveSensorGrid=document.querySelector('[data-sensor-live]');
 let refreshLatestSensorReading=()=>{};
-if(liveSensorGrid){let liveRequest=false;const initialTimestamp=Date.parse(liveSensorGrid.querySelector('.sensor-time')?.dateTime||'');let latestReadingTimestamp=Number.isFinite(initialTimestamp)?initialTimestamp:Number.NEGATIVE_INFINITY;const sensorNames=['soil_temperature','air_temperature','air_humidity','light_percent','light_intensity','soil_moisture','soil_ph'];function formatReadingAge(timestamp){const seconds=Math.max(0,Math.floor((Date.now()-timestamp)/1000));const [amount,unit]=seconds<60?[seconds,'second']:seconds<3600?[Math.floor(seconds/60),'minute']:seconds<86400?[Math.floor(seconds/3600),'hour']:[Math.floor(seconds/86400),'day'];return `Updated ${new Intl.RelativeTimeFormat(undefined,{numeric:'auto'}).format(-amount,unit)}`;}async function refreshLatest(){if(liveRequest||document.hidden)return;liveRequest=true;const freshness=document.querySelector('[data-reading-freshness]');try{const response=await fetch(liveSensorGrid.dataset.sensorLive,{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(10000)});const data=await response.json().catch(()=>({}));if(!response.ok){if(freshness)freshness.textContent=data.upstream_status?`Supabase HTTP ${data.upstream_status}; check the server key and Data API access.`:data.message||'Supabase connection unavailable';return;}const reading=data.reading;const observedAt=reading?.reading_at?Date.parse(reading.reading_at):NaN;if(reading&&Number.isFinite(observedAt)&&observedAt>=latestReadingTimestamp){latestReadingTimestamp=observedAt;for(const [index,name] of sensorNames.entries()){const card=liveSensorGrid.querySelectorAll('.sensor-card')[index],value=card?.querySelector('.sensor-value'),time=card?.querySelector('.sensor-time');if(!card||!value||!time)continue;const display=name==='air_temperature'?(reading.air_temperature??reading.temperature):name==='air_humidity'?(reading.air_humidity??reading.humidity):reading[name];value.firstChild.textContent=display==null?'—':Number(display).toFixed(1);time.dateTime=reading.reading_at;time.textContent=formatReadingAge(observedAt);}}const pump=document.querySelector('[data-pump-status]'),update=document.querySelector('[data-sensor-update]'),activeDevices=document.querySelector('[data-active-devices]');if(pump&&reading)pump.textContent=reading.pump==null?'No reading':reading.pump?'On':'Off';if(freshness)freshness.textContent=data.stale?'Stale reading from Supabase':reading?'Current reading from Supabase':'No reading available';if(update&&reading)update.textContent=`Last reading ${new Date(reading.reading_at).toLocaleString()}`;if(activeDevices)activeDevices.textContent=String(data.active_devices??0);}catch{if(freshness)freshness.textContent='Supabase request failed; check network and Laravel log.';}finally{liveRequest=false;}}refreshLatestSensorReading=refreshLatest;refreshLatest();const pollingTimer=window.setInterval(refreshLatest,5000);const updateAge=()=>{if(!Number.isFinite(latestReadingTimestamp))return;for(const time of liveSensorGrid.querySelectorAll('.sensor-time'))time.textContent=formatReadingAge(latestReadingTimestamp);};const ageTimer=window.setInterval(updateAge,1000);window.addEventListener('online',refreshLatest);window.addEventListener('pagehide',()=>{window.clearInterval(pollingTimer);window.clearInterval(ageTimer);},{once:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLatest();});}
+if(liveSensorGrid){let liveRequest=false,latestSensorDeviceId=null;const initialTimestamp=Date.parse(liveSensorGrid.querySelector('.sensor-time')?.dateTime||'');let latestReadingTimestamp=Number.isFinite(initialTimestamp)?initialTimestamp:Number.NEGATIVE_INFINITY;const sensorNames=['soil_temperature','air_temperature','air_humidity','light_percent','light_intensity','soil_moisture','soil_ph'];function formatReadingAge(timestamp){const seconds=Math.max(0,Math.floor((Date.now()-timestamp)/1000));const [amount,unit]=seconds<60?[seconds,'second']:seconds<3600?[Math.floor(seconds/60),'minute']:seconds<86400?[Math.floor(seconds/3600),'hour']:[Math.floor(seconds/86400),'day'];return `Updated ${new Intl.RelativeTimeFormat(undefined,{numeric:'auto'}).format(-amount,unit)}`;}async function refreshLatest(){if(liveRequest||document.hidden)return;liveRequest=true;const freshness=document.querySelector('[data-reading-freshness]');try{const response=await fetch(liveSensorGrid.dataset.sensorLive,{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(10000)});const data=await response.json().catch(()=>({}));if(!response.ok){if(freshness)freshness.textContent=data.upstream_status===401?'Supabase rejected the configured sensor secret key (401). Use a valid server secret key for this project URL.':data.upstream_status?`Supabase HTTP ${data.upstream_status}; check Data API permissions.`:data.message||'Supabase connection unavailable';return;}const reading=data.reading;if(latestSensorDeviceId!==data.device?.id){latestSensorDeviceId=data.device?.id;latestReadingTimestamp=Number.NEGATIVE_INFINITY;}if(!reading){for(const card of liveSensorGrid.querySelectorAll('.sensor-card')){const value=card.querySelector('.sensor-value'),time=card.querySelector('.sensor-time'),badge=card.querySelector('.status-badge');if(value)value.firstChild.textContent='—';if(time){time.dateTime='';time.textContent='Waiting for your device';}if(badge)badge.textContent='No reading';}}const observedAt=reading?.reading_at?Date.parse(reading.reading_at):NaN;if(reading&&Number.isFinite(observedAt)&&observedAt>=latestReadingTimestamp){latestReadingTimestamp=observedAt;for(const [index,name] of sensorNames.entries()){const card=liveSensorGrid.querySelectorAll('.sensor-card')[index],value=card?.querySelector('.sensor-value'),time=card?.querySelector('.sensor-time');if(!card||!value||!time)continue;const display=name==='air_temperature'?(reading.air_temperature??reading.temperature):name==='air_humidity'?(reading.air_humidity??reading.humidity):reading[name];value.firstChild.textContent=display==null?'—':Number(display).toFixed(1);time.dateTime=reading.reading_at;time.textContent=formatReadingAge(observedAt);const badge=card.querySelector('.status-badge');if(badge)badge.textContent=data.stale?'Stale reading':'Reading received';}}const pump=document.querySelector('[data-pump-status]'),update=document.querySelector('[data-sensor-update]'),activeDevices=document.querySelector('[data-active-devices]');if(pump)pump.textContent=reading?.pump==null?'No reading':reading.pump?'On':'Off';if(freshness)freshness.textContent=data.stale?'Stale reading from Supabase':reading?'Current reading from Supabase':'No reading available';if(update&&reading)update.textContent=`Last reading ${new Date(reading.reading_at).toLocaleString()}`;if(activeDevices)activeDevices.textContent=String(data.active_devices??0);}catch{if(freshness)freshness.textContent='Supabase request failed; check network and Laravel log.';}finally{liveRequest=false;}}refreshLatestSensorReading=refreshLatest;refreshLatest();const pollingTimer=window.setInterval(refreshLatest,Number(liveSensorGrid.dataset.refreshInterval)||10000);const updateAge=()=>{if(!Number.isFinite(latestReadingTimestamp))return;for(const time of liveSensorGrid.querySelectorAll('.sensor-time'))time.textContent=formatReadingAge(latestReadingTimestamp);};const ageTimer=window.setInterval(updateAge,1000);window.addEventListener('online',refreshLatest);window.addEventListener('pagehide',()=>{window.clearInterval(pollingTimer);window.clearInterval(ageTimer);},{once:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLatest();});}
 document.querySelector('[data-logout]')?.addEventListener('submit',async e=>{e.preventDefault();await clearSnapshots();localStorage.removeItem('agrisense-save-offline');e.target.submit();});
 const setting=document.querySelector('[data-offline-setting]');
 if(setting){setting.checked=localStorage.getItem('agrisense-save-offline')===owner;setting.addEventListener('change',async()=>{if(setting.checked){localStorage.setItem('agrisense-save-offline',owner);document.querySelector('[data-settings-status]').textContent='Enabled. Open Monitoring to save a snapshot on this device.';}else{localStorage.removeItem('agrisense-save-offline');await clearSnapshots();document.querySelector('[data-settings-status]').textContent='Offline snapshots removed.';}});}
@@ -67,6 +67,236 @@ for(const card of document.querySelectorAll('[data-monitor]')){
  refreshers.push(refresh);refresh();setInterval(refresh,30000);window.addEventListener('online',refresh);window.addEventListener('offline',()=>{state.textContent='Offline Â· chart shows a previous load, NOT LIVE.';});
 }
 if(owner&&(refreshers.length||liveSensorGrid)){let client;async function connect(){try{const response=await fetch(base+'realtime/credentials',{headers:{Accept:'application/json'},cache:'no-store'});if(!response.ok)return;const data=await response.json();if(!client){client=createClient(data.url,data.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});await client.realtime.setAuth(data.token);client.channel(data.channel,{config:{private:true}}).on('broadcast',{event:'reading'},()=>{refreshLatestSensorReading();refreshers.forEach(refresh=>refresh());}).subscribe();}else await client.realtime.setAuth(data.token);}catch{/* Authenticated polling continues during Realtime outages. */}}connect();const realtimeRefreshTimer=window.setInterval(connect,240000);window.addEventListener('pagehide',()=>window.clearInterval(realtimeRefreshTimer),{once:true});}
+const devicePage = document.querySelector('[data-device-page]');
+if (devicePage) {
+ const list = devicePage.querySelector('[data-device-list]');
+ const count = devicePage.querySelector('[data-device-count]');
+ const status = devicePage.querySelector('[data-device-list-status]');
+ const addButton = devicePage.querySelector('[data-add-device]');
+ const dialog = devicePage.querySelector('[data-add-device-dialog]');
+ const addForm = dialog.querySelector('[data-add-device-form]');
+ const cancelButton = dialog.querySelector('[data-cancel-add-device]');
+ const submitButton = addForm.querySelector('button[type="submit"]');
+ const addError = dialog.querySelector('[data-add-device-error]');
+ const addStatus = dialog.querySelector('[data-add-device-status]');
+ const success = dialog.querySelector('[data-add-device-success]');
+ let adding = false, added = false, pendingRefresh = false;
+ let request, client, channels = [], pollTimer, tokenTimer, generation = 0, running = false, loading = false, connecting = false, realtimeUnavailable = false;
+ async function refreshDevices(force = false) {
+  if (loading) {
+   if (force === true) { pendingRefresh = true; request?.abort(); }
+   return;
+  }
+  if (!running || document.hidden || (force !== true && list.contains(document.activeElement))) { return; }
+  loading = true;
+  const currentGeneration = generation;
+  const currentRequest = new AbortController();
+  request = currentRequest;
+  devicePage.setAttribute('aria-busy', 'true');
+  status.textContent = 'Loading devices…';
+  try {
+   const response = await fetch(devicePage.dataset.endpoint, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.any([currentRequest.signal, AbortSignal.timeout(20000)]) });
+   const data = await response.json().catch(() => ({}));
+   if (!response.ok) {
+    throw new Error(response.status === 401 || response.status === 419 ? 'Your session expired. Sign in again to view your devices.' : response.status === 403 ? 'You do not have permission to view these devices.' : data.message || 'Devices could not be loaded. Reload the page to try again.');
+   }
+   if (typeof data.html !== 'string' || typeof data.total !== 'number') { throw new Error('The device list could not be confirmed. Refresh the page and sign in again.'); }
+   if (!running || currentGeneration !== generation || (force !== true && list.contains(document.activeElement))) { return; }
+   list.innerHTML = data.html;
+   count.textContent = `${data.total} devices available to you`;
+   createIcons({ icons });
+   status.textContent = realtimeUnavailable ? 'Live notifications are unavailable; automatic refresh continues.' : '';
+  } catch (error) {
+   if (running && currentGeneration === generation && !currentRequest.signal.aborted) {
+    status.textContent = error instanceof TypeError || error.name === 'TimeoutError' ? 'Network error loading devices. Previously displayed data may be outdated. Automatic loading will retry.' : error.message;
+   }
+  } finally {
+   if (currentGeneration === generation) {
+    loading = false;
+    if (status.textContent === 'Loading devices…') { status.textContent = ''; }
+    devicePage.removeAttribute('aria-busy');
+    if (pendingRefresh && running) { pendingRefresh = false; refreshDevices(true); }
+   }
+  }
+ }
+ async function connectDeviceUpdates() {
+  if (!running || connecting) { return; }
+  const currentGeneration = generation;
+  connecting = true;
+  try {
+   const response = await fetch(devicePage.dataset.realtimeEndpoint, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
+   if (response.status === 404) { return; }
+   if (!response.ok) { throw new Error('Live notifications unavailable'); }
+   const credentials = await response.json();
+   if (!running || currentGeneration !== generation) { return; }
+   if (!client) {
+    client = createClient(credentials.url, credentials.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+   }
+   await client.realtime.setAuth(credentials.token);
+   if (!running || currentGeneration !== generation) { return; }
+   if (!channels.length) {
+    for (const [name, event] of [[credentials.catalog_channel, 'catalog'], [credentials.channel, 'reading']]) {
+     if (!name) { continue; }
+     const channel = client.channel(name, { config: { private: true } }).on('broadcast', { event }, refreshDevices);
+     channels.push(channel);
+     channel.subscribe(state => {
+      if (!running || currentGeneration !== generation) { return; }
+      realtimeUnavailable = channels.some(subscription => subscription.state !== 'joined');
+      if (state === 'CHANNEL_ERROR' || state === 'TIMED_OUT' || state === 'CLOSED') {
+       status.textContent = 'Live notifications are unavailable; automatic refresh continues.';
+      } else if (state === 'SUBSCRIBED') { refreshDevices(); }
+     });
+    }
+   }
+  } catch {
+   if (running && currentGeneration === generation) { realtimeUnavailable = true; status.textContent = 'Live notifications are unavailable; automatic refresh continues.'; }
+  } finally { if (currentGeneration === generation) { connecting = false; } }
+ }
+ function startDeviceUpdates() {
+  if (running) { return; }
+  running = true;
+  refreshDevices();
+  connectDeviceUpdates();
+  pollTimer = window.setInterval(refreshDevices, 30000);
+  tokenTimer = window.setInterval(connectDeviceUpdates, 240000);
+ }
+ function stopDeviceUpdates() {
+  running = false;
+  generation++;
+  loading = false;
+  connecting = false;
+  request?.abort();
+  window.clearInterval(pollTimer);
+  window.clearInterval(tokenTimer);
+  if (client) {
+   client.removeAllChannels().catch(() => {});
+   client.realtime.disconnect().catch(() => {});
+   client = null;
+  }
+  channels = [];
+ }
+ addButton.addEventListener('click', () => {
+  addForm.reset();
+  for (const field of addForm.querySelectorAll('input, select, textarea')) { field.disabled = false; }
+  added = false;
+  success.classList.add('hidden');
+  dialog.querySelector('[data-add-device-token]').textContent = '';
+  addError.textContent = '';
+  addStatus.textContent = '';
+  submitButton.disabled = false;
+  cancelButton.textContent = 'Cancel';
+  dialog.showModal();
+ });
+ cancelButton.addEventListener('click', () => { if (!adding) { dialog.close(); } });
+ dialog.addEventListener('cancel', event => { if (adding) { event.preventDefault(); } });
+ dialog.addEventListener('close', () => { dialog.querySelector('[data-add-device-token]').textContent = ''; });
+ addForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (adding || added) { return; }
+  adding = true;
+  submitButton.disabled = true;
+  cancelButton.disabled = true;
+  addForm.setAttribute('aria-busy', 'true');
+  addError.textContent = '';
+  addStatus.textContent = 'Adding device…';
+  const body = new FormData(addForm);
+  for (const field of addForm.querySelectorAll('input, select, textarea')) { field.disabled = true; }
+  try {
+   const response = await fetch(addForm.action, { method: 'POST', body, headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+   const data = await response.json().catch(() => ({}));
+   if (!response.ok) {
+    throw new Error(response.status === 401 || response.status === 419 ? 'Your session expired. Reload the page and sign in again.' : response.status === 403 ? 'Device registration is not permitted.' : response.status === 429 ? 'Too many attempts. Wait a minute before trying again.' : Object.values(data.errors || {}).flat().join(' ') || data.message || 'Device could not be added. Please try again.');
+   }
+   if (!data.id || !data.device_token) { throw new Error('Registration could not be confirmed. Check your device list before retrying.'); }
+   added = true;
+   dialog.querySelector('[data-add-device-message]').textContent = data.message;
+   dialog.querySelector('[data-add-device-token]').textContent = data.device_token;
+   success.classList.remove('hidden');
+   cancelButton.textContent = 'Done';
+   const listUrl = new URL(devicePage.dataset.endpoint, window.location.origin);
+   listUrl.searchParams.delete('page');
+   devicePage.dataset.endpoint = listUrl.href;
+   const pageUrl = new URL(window.location.href);
+   pageUrl.searchParams.delete('page');
+   window.history.replaceState(null, '', pageUrl);
+   refreshDevices(true);
+  } catch (error) {
+   addError.textContent = error instanceof TypeError || error.name === 'TimeoutError' ? 'Network error. Check the device list before retrying; registration may have completed.' : error.message;
+   refreshDevices(true);
+  } finally {
+   adding = false;
+   for (const field of addForm.querySelectorAll('input, select, textarea')) { field.disabled = added; }
+   submitButton.disabled = added;
+   cancelButton.disabled = false;
+   addStatus.textContent = '';
+   addForm.removeAttribute('aria-busy');
+  }
+ });
+ window.addEventListener('online', () => { refreshDevices(); connectDeviceUpdates(); });
+ document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshDevices(); connectDeviceUpdates(); } });
+ window.addEventListener('pagehide', stopDeviceUpdates);
+ window.addEventListener('pageshow', event => { if (event.persisted) { startDeviceUpdates(); } });
+ startDeviceUpdates();
+}
+const deviceForm = document.querySelector('[data-device-form]');
+if (deviceForm) {
+ const ownerSelect = deviceForm.querySelector('[name="user_id"]');
+ const cropSelect = deviceForm.querySelector('[name="crop_id"]');
+ const status = deviceForm.querySelector('[data-form-status]');
+ const saveButton = deviceForm.querySelector('button[type="submit"]');
+ let cropRequest, saving = false;
+ ownerSelect?.addEventListener('change', async () => {
+  if (saving) { return; }
+  cropRequest?.abort();
+  cropRequest = new AbortController();
+  const currentRequest = cropRequest;
+  cropSelect.replaceChildren(new Option('Unassigned', ''));
+  if (!ownerSelect.value) { cropSelect.disabled = false; status.textContent = ''; return; }
+  cropSelect.disabled = true;
+  status.textContent = 'Loading crops…';
+  try {
+   const url = new URL(deviceForm.dataset.cropsEndpoint, window.location.origin);
+   url.searchParams.set('user_id', ownerSelect.value);
+   const response = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.any([currentRequest.signal, AbortSignal.timeout(12000)]) });
+   if (!response.ok) { throw new Error(response.status === 403 ? 'You do not have permission to load these crops.' : 'Crops could not be loaded. Choose the owner again to retry, or save as Unassigned.'); }
+   const data = await response.json();
+   for (const crop of data.crops) { cropSelect.add(new Option(`${crop.name} · ${crop.location || ''}`, crop.id)); }
+   status.textContent = '';
+  } catch (error) {
+   if (!currentRequest.signal.aborted) { status.textContent = error instanceof TypeError || error.name === 'TimeoutError' ? 'Network error loading crops. Choose the owner again to retry, or save as Unassigned.' : error.message; }
+  } finally {
+   if (cropRequest === currentRequest && !saving) { cropSelect.disabled = false; }
+  }
+ });
+ if (ownerSelect) { deviceForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (saving) { return; }
+  saving = true;
+  saveButton.disabled = true;
+  deviceForm.setAttribute('aria-busy', 'true');
+  status.textContent = 'Registering device…';
+  const body = new FormData(deviceForm);
+  cropRequest?.abort();
+  ownerSelect.disabled = true;
+  cropSelect.disabled = true;
+  try {
+   const response = await fetch(deviceForm.action, { method: 'POST', body, headers: { Accept: 'application/json' } });
+   const data = await response.json().catch(() => ({}));
+   if (!response.ok) {
+    throw new Error(response.status === 403 ? 'You do not have permission to register devices.' : response.status === 419 || response.status === 401 ? 'Your session expired. Refresh the page and sign in again.' : Object.values(data.errors || {}).flat().join(' ') || data.message || 'Registration failed. Please try again.');
+   }
+   if (!data.redirect) { throw new Error('Registration could not be confirmed. Check the device list before retrying.'); }
+   window.location.assign(data.redirect);
+  } catch (error) {
+   status.textContent = error instanceof TypeError ? 'Network error. Check the device list before retrying; the device may have been registered.' : error.message;
+   saving = false;
+   ownerSelect.disabled = false;
+   cropSelect.disabled = false;
+   saveButton.disabled = false;
+   deviceForm.removeAttribute('aria-busy');
+  }
+ }); }
+}
 if('serviceWorker'in navigator&&window.isSecureContext)navigator.serviceWorker.register(base+'sw.js',{scope:base}).catch(()=>{});
 const aiChat=document.querySelector('[data-ai-chat]');
 if(aiChat){
