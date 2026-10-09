@@ -2,7 +2,7 @@
 
 return [
     'subtitle' => 'Smart Agriculture Monitoring & AI Assistance',
-    'stale_minutes' => 10,
+    'stale_minutes' => (int) env('SENSOR_STALE_MINUTES', 3),
     'supabase_url' => env('SUPABASE_URL'),
     'supabase_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
     'supabase_publishable_key' => env('SUPABASE_PUBLISHABLE_KEY'),

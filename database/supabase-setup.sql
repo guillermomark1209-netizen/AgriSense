@@ -41,6 +41,6 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.agrisense_notify_reading() FROM PUBLIC;
 DROP TRIGGER IF EXISTS agrisense_reading_changed ON public.sensor_readings;
-CREATE TRIGGER agrisense_reading_changed AFTER INSERT ON public.sensor_readings
+CREATE TRIGGER agrisense_reading_changed AFTER INSERT OR UPDATE ON public.sensor_readings
 FOR EACH ROW EXECUTE FUNCTION public.agrisense_notify_reading();
 COMMIT;
