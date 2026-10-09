@@ -47,6 +47,7 @@ Route::middleware(['auth', 'track-user-activity'])->group(function () {
     Route::post('devices/{device}/token', [DeviceController::class, 'rotate'])->middleware('admin')->name('devices.token');
     Route::get('monitoring', [MonitoringController::class, 'index'])->name('monitoring.index');
     Route::get('monitoring/data', [MonitoringController::class, 'data'])->middleware('throttle:120,1')->name('monitoring.data');
+    Route::get('monitoring/latest', [MonitoringController::class, 'latest'])->middleware('throttle:120,1')->name('monitoring.latest');
     Route::get('realtime/credentials', [RealtimeService::class, 'credentials'])->middleware('throttle:15,1')->name('realtime.credentials');
     Route::get('alerts', [AlertController::class, 'index'])->name('alerts.index');
     Route::patch('alerts/{alert}/resolve', [AlertController::class, 'resolve'])->name('alerts.resolve');

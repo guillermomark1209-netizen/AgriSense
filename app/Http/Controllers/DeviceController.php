@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Http\Requests\DeviceRequest;
 use App\Models\Crop;
 use App\Models\Device;
+use App\Models\SensorReading;
 use App\Models\User;
 use App\Services\AdminAuditService;
 use App\Services\DeviceService;
+use App\Services\SupabaseSensorReadingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,9 +23,27 @@ class DeviceController extends Controller
         Gate::authorize('view', $device);
     }
 
-    public function index(Request $request): View
+    public function index(Request $request, SupabaseSensorReadingService $supabase): View
     {
-        return view('devices.index', ['devices' => Device::query()->when(! $request->user()->isAdmin(), fn ($query) => $query->where('user_id', $request->user()->id))->with('crop')->latest()->paginate(12)]);
+        $devices = Device::query()
+            ->when(! $request->user()->isAdmin(), fn ($query) => $query->where('user_id', $request->user()->id))
+            ->with('crop')
+            ->latest()
+            ->paginate(12);
+
+        $sensorDevice = $devices->getCollection()->firstWhere('device_id', config('agrisense.supabase_sensor_device_identifier'));
+        if ($sensorDevice?->is_active) {
+            try {
+                $latest = $supabase->readings('1970-01-01T00:00:00Z', now()->toIso8601String(), 1)[0] ?? null;
+                if ($latest) {
+                    $sensorDevice->setAttribute('last_seen_at', $latest['reading_at']);
+                }
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return view('devices.index', compact('devices'));
     }
 
     public function create(Request $request): View
@@ -45,11 +65,32 @@ class DeviceController extends Controller
         return redirect()->route('devices.show', $device)->with('device_token', $service->rotateToken($device))->with('success', 'Device registered. Save its token now; it is shown only once.');
     }
 
-    public function show(Device $device): View
+    public function show(Device $device, SupabaseSensorReadingService $supabase): View
     {
         $this->authorizeDevice($device);
+        $device->load('crop');
+        $usesSupabaseReadings = $device->device_id === config('agrisense.supabase_sensor_device_identifier');
+        $readings = $device->readings()->latest('reading_at')->limit(10)->get();
+        $sensorReadError = null;
 
-        return view('devices.show', ['device' => $device->load('crop'), 'readings' => $device->readings()->latest('reading_at')->limit(10)->get()]);
+        if ($usesSupabaseReadings && $device->is_active) {
+            try {
+                $remoteReadings = $supabase->readings('1970-01-01T00:00:00Z', now()->toIso8601String(), 10);
+                $readings = collect($remoteReadings)->map(fn (array $reading) => new SensorReading($reading));
+
+                if ($remoteReadings !== []) {
+                    $device->setAttribute('last_seen_at', $remoteReadings[0]['reading_at']);
+                }
+            } catch (\Throwable $exception) {
+                report($exception);
+                $sensorReadError = str_contains($exception->getMessage(), 'not configured')
+                    ? 'Set SUPABASE_SENSOR_SECRET_KEY in .env to read protected Supabase data.'
+                    : 'Supabase readings could not be loaded. Check the Laravel log for the API error.';
+                $readings = collect();
+            }
+        }
+
+        return view('devices.show', compact('device', 'readings', 'usesSupabaseReadings', 'sensorReadError'));
     }
 
     public function edit(Device $device): View

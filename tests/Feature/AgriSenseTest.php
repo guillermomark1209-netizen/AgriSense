@@ -95,6 +95,59 @@ class AgriSenseTest extends TestCase
         $this->assertTrue($device->fresh()->online);
     }
 
+    public function test_extended_sensor_fields_are_validated_and_persisted_without_unit_conversion(): void
+    {
+        $user = User::factory()->create();
+        [$device, $token] = $this->device($user, $this->crop($user));
+        $payload = $this->payload($device, [
+            'soil_temperature' => 21.3,
+            'air_temperature' => 27.2,
+            'air_humidity' => 70,
+            'light_percent' => 45,
+            'soil_raw' => 2200,
+            'ldr_raw' => 900,
+            'ph_raw' => 6.8,
+            'pump' => false,
+        ]);
+
+        $this->withToken($token)->postJson('/api/device/readings', $payload)->assertCreated();
+
+        $this->assertDatabaseHas('sensor_readings', [
+            'reading_id' => $payload['reading_id'],
+            'soil_temperature' => 21.3,
+            'air_temperature' => 27.2,
+            'air_humidity' => 70,
+            'light_percent' => 45,
+            'soil_raw' => 2200,
+            'ldr_raw' => 900,
+            'ph_raw' => 6.8,
+            'pump' => false,
+        ]);
+    }
+
+    public function test_offset_reading_timestamps_are_normalized_to_utc_before_storage(): void
+    {
+        $user = User::factory()->create();
+        [$device, $token] = $this->device($user, $this->crop($user));
+        $observedAt = now()->subMinute()->setTimezone('Asia/Manila');
+        $payload = $this->payload($device, [
+            'reading_at' => $observedAt->toIso8601String(),
+        ]);
+
+        $this->withToken($token)->postJson('/api/device/readings', $payload)->assertCreated();
+
+        $storedReading = $device->readings()->where('reading_id', $payload['reading_id'])->firstOrFail();
+
+        $this->assertSame(
+            $observedAt->copy()->utc()->toIso8601String(),
+            $storedReading->reading_at->toIso8601String()
+        );
+        $this->assertSame(
+            $observedAt->utc()->format('Y-m-d H:i:s'),
+            $storedReading->reading_at->format('Y-m-d H:i:s')
+        );
+    }
+
     public function test_replayed_readings_are_idempotent_and_preserve_observation_time(): void
     {
         $user = User::factory()->create();

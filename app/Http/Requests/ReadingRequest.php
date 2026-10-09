@@ -22,13 +22,21 @@ class ReadingRequest extends FormRequest
             'soil_moisture' => ['nullable', 'numeric', 'between:0,100'],
             'soil_ph' => ['nullable', 'numeric', 'between:0,14'],
             'light_intensity' => ['nullable', 'numeric', 'between:0,999999'],
+            'soil_temperature' => ['nullable', 'numeric', 'between:-100,150'],
+            'air_temperature' => ['nullable', 'numeric', 'between:-100,150'],
+            'air_humidity' => ['nullable', 'numeric', 'between:0,100'],
+            'light_percent' => ['nullable', 'numeric', 'between:0,100'],
+            'soil_raw' => ['nullable', 'integer', 'min:0'],
+            'ldr_raw' => ['nullable', 'integer', 'min:0'],
+            'ph_raw' => ['nullable', 'numeric', 'min:0'],
+            'pump' => ['nullable', 'boolean'],
         ];
     }
 
     public function after(): array
     {
         return [function ($validator) {
-            if (collect(array_keys(config('agrisense.sensors')))->every(fn ($key) => $this->input($key) === null)) {
+            if (collect(config('agrisense.reading_fields'))->every(fn ($key) => $this->input($key) === null)) {
                 $validator->errors()->add('readings', 'At least one sensor value is required.');
             }
         }];
