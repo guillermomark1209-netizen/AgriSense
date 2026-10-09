@@ -16,5 +16,11 @@ class SensorController extends Controller
         $reading = $service->storeReading($device, $request->validated());
 
         return response()->json(['id' => $reading->id, 'reading_id' => $reading->reading_id, 'reading_at' => $reading->reading_at, 'duplicate' => ! $reading->wasRecentlyCreated], $reading->wasRecentlyCreated ? 201 : 200);
+
+      error_log(
+    'AGRISENSE_VALIDATED: ' .
+    json_encode($request->validated())
+);
+        
     }
 }
