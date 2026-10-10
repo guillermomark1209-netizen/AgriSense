@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\AuthMessage;
 use App\Models\Crop;
 use App\Models\User;
 use Illuminate\Database\QueryException;
@@ -10,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -45,9 +47,12 @@ class RoleAccessTest extends TestCase
 
     public function test_public_registration_and_profile_cannot_promote_accounts(): void
     {
-        $this->post('/register', ['name' => 'Normal user', 'email' => 'normal@example.test', 'password' => 'long-test-password', 'password_confirmation' => 'long-test-password', 'role' => 'admin'])->assertRedirect('/dashboard');
+        Mail::fake();
+        $this->post('/register', ['name' => 'Normal user', 'email' => 'normal@example.test', 'password' => 'long-test-password', 'password_confirmation' => 'long-test-password', 'role' => 'admin'])->assertRedirect('/verify-email');
         $user = User::where('email', 'normal@example.test')->firstOrFail();
         $this->assertSame('user', $user->role);
+        $code = Mail::sent(AuthMessage::class)->first()->secret;
+        $this->post(route('verification.verify'), ['otp' => $code])->assertRedirect(route('verification.success'));
         $this->post('/profile', ['name' => 'Changed', 'email' => $user->email, 'role' => 'admin', 'user_id' => 999])->assertSessionHasNoErrors();
         $this->assertSame('user', $user->fresh()->role);
         $this->assertSame('user', (new User(['role' => 'admin']))->role);

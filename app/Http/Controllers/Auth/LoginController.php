@@ -20,8 +20,8 @@ class LoginController extends Controller
     public function login(Request $request, AdminAuditService $audit, UserSessionService $userSessions): RedirectResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required'],
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
@@ -29,6 +29,10 @@ class LoginController extends Controller
             $userSessions->recordLogin($request->user(), $request->session()->getId(), $request->ip());
             $request->session()->put('user_session_last_activity', now()->getTimestamp());
             $audit->record('LOGIN_SUCCEEDED', 'users', $request->user()->id, 'User signed in.');
+
+            if (! $request->user()->hasVerifiedEmail()) {
+                return redirect()->route('verification.notice');
+            }
 
             if ($request->user()->isAdmin()) {
                 $request->session()->forget('url.intended');

@@ -15,6 +15,8 @@ return [
     */
 
     'default' => env('MAIL_MAILER', 'log'),
+    'auth_mailer' => env('AUTH_MAIL_MAILER', 'smtp'),
+    'auth_queue' => env('AUTH_MAIL_QUEUE', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -40,12 +42,13 @@ return [
         'smtp' => [
             'transport' => 'smtp',
             'scheme' => env('MAIL_SCHEME'),
+            'require_tls' => env('MAIL_REQUIRE_TLS', true),
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 2525),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            'timeout' => 15,
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 

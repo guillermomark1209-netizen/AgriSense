@@ -31,8 +31,19 @@ class ProfileController extends Controller
         if ($user->isDirty('email')) {
             $user->email_verified_at = null;
         }
+        $emailChanged = $user->isDirty('email');
         $user->save();
         $user->profile()->updateOrCreate(['user_id' => $user->id], [...$profile, 'full_name' => $user->name]);
+
+        if ($emailChanged) {
+            try {
+                $user->sendEmailVerificationNotification();
+            } catch (\RuntimeException) {
+                return redirect()->route('verification.notice')->withErrors(['otp' => 'Your email was updated. Email delivery is temporarily unavailable; request a new code shortly.']);
+            }
+
+            return redirect()->route('verification.notice');
+        }
 
         return back()->with('success', 'Profile updated.');
     }

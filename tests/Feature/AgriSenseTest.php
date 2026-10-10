@@ -17,7 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -59,7 +59,8 @@ class AgriSenseTest extends TestCase
 
     public function test_registration_creates_farmer_profile_and_cannot_self_assign_admin(): void
     {
-        $this->post('/register', ['name' => 'Farmer', 'email' => 'farmer@example.test', 'password' => 'a-long-test-password', 'password_confirmation' => 'a-long-test-password', 'role' => 'admin'])->assertRedirect('/dashboard');
+        Mail::fake();
+        $this->post('/register', ['name' => 'Farmer', 'email' => 'farmer@example.test', 'password' => 'a-long-test-password', 'password_confirmation' => 'a-long-test-password', 'role' => 'admin'])->assertRedirect('/verify-email');
         $user = User::first();
         $this->assertAuthenticatedAs($user);
         $this->assertTrue($user->hasRole('user'));
@@ -360,7 +361,7 @@ class AgriSenseTest extends TestCase
 
     public function test_password_reset_flow_updates_password(): void
     {
-        Notification::fake();
+        Mail::fake();
         $user = User::factory()->create();
         $this->post('/forgot-password', ['email' => $user->email])->assertSessionHas('success');
         $token = Password::createToken($user);

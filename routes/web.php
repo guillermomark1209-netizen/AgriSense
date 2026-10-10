@@ -10,6 +10,7 @@ use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\Auth\VerificationController;
 use App\Http\Controllers\CropController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceController;
@@ -34,8 +35,14 @@ Route::middleware('guest')->group(function () {
     Route::get('reset-password/{token}', [PasswordController::class, 'reset'])->name('password.reset');
     Route::post('reset-password', [PasswordController::class, 'update'])->middleware('throttle:5,1')->name('password.update');
 });
-Route::middleware(['auth', 'track-user-activity'])->group(function () {
+Route::middleware('auth')->group(function () {
+    Route::get('verify-email', [VerificationController::class, 'notice'])->name('verification.notice');
+    Route::post('verify-email', [VerificationController::class, 'verify'])->middleware('throttle:otp-verify')->name('verification.verify');
+    Route::post('verify-email/resend', [VerificationController::class, 'resend'])->middleware('throttle:otp-resend')->name('verification.send');
+    Route::view('verify-email/success', 'auth.verified')->middleware('verified')->name('verification.success');
     Route::post('logout', [LoginController::class, 'logout'])->name('logout');
+});
+Route::middleware(['auth', 'verified', 'track-user-activity'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::resource('crops', CropController::class)->only(['destroy'])->middleware('admin');
     Route::resource('crops', CropController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);

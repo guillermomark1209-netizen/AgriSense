@@ -2,6 +2,10 @@
 
 namespace App\Models;
 
+use App\Mail\AuthMessage;
+use App\Services\AuthMailService;
+use App\Services\EmailVerificationService;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -10,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     use HasFactory, Notifiable;
 
@@ -30,6 +34,16 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
     ];
+
+    public function sendEmailVerificationNotification(): void
+    {
+        app(EmailVerificationService::class)->send($this);
+    }
+
+    public function sendPasswordResetNotification(mixed $token): void
+    {
+        app(AuthMailService::class)->send(new AuthMessage('reset', $this->id, $this->email, $this->name, $token));
+    }
 
     public function profile(): HasOne
     {

@@ -22,6 +22,15 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::define('manage-system', fn (User $user): bool => $user->isAdmin());
 
+        RateLimiter::for('otp-verify', fn (Request $request) => [
+            Limit::perMinute(5)->by('verify:'.$request->user()->id),
+            Limit::perMinute(30)->by('verify-ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('otp-resend', fn (Request $request) => [
+            Limit::perHour(10)->by('resend:'.$request->user()->id),
+            Limit::perMinute(10)->by('resend-ip:'.$request->ip()),
+        ]);
+
         RateLimiter::for('login', fn (Request $request) => [
             Limit::perMinute(5)->by(
                 strtolower($request->input('email', '')).'|'.$request->ip()

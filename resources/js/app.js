@@ -315,3 +315,78 @@ if(aiChat){
 document.querySelector('[data-ai-new-chat]')?.addEventListener('click',async event=>{const button=event.currentTarget;try{button.disabled=true;const response=await fetch(button.dataset.endpoint,{method:'POST',headers:{'Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]')?.content||''}});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)throw new Error();window.location.assign(data.url);}catch{button.disabled=false;}});
 const deleteDialog=document.querySelector('[data-ai-delete-dialog]');let conversationToDelete;document.querySelectorAll('[data-ai-delete-conversation]').forEach(button=>button.addEventListener('click',()=>{conversationToDelete={endpoint:button.dataset.endpoint,current:button.dataset.current==='true'};deleteDialog?.showModal();}));deleteDialog?.addEventListener('close',async()=>{if(deleteDialog.returnValue!=='delete'||!conversationToDelete)return;const target=conversationToDelete;conversationToDelete=undefined;try{const response=await fetch(target.endpoint,{method:'DELETE',headers:{'Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]')?.content||''}});if(!response.ok)throw new Error();if(target.current){const newChat=document.querySelector('[data-ai-new-chat]');const created=await fetch(newChat.dataset.endpoint,{method:'POST',headers:{'Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]')?.content||''}});const data=await created.json().catch(()=>({}));if(!created.ok||!data.url)throw new Error();window.location.assign(data.url);return;}window.location.reload();}catch{window.location.reload();}});
 let installPrompt;const install=document.querySelector('[data-install]');window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;if(install)install.hidden=false;});install?.addEventListener('click',async()=>{if(!installPrompt)return;await installPrompt.prompt();installPrompt=null;install.hidden=true;});
+document.querySelectorAll('[data-password-toggle]').forEach(button => {
+    button.hidden = false;
+    button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.passwordToggle);
+        const visible = input.type === 'password';
+        input.type = visible ? 'text' : 'password';
+        button.textContent = visible ? 'Hide password' : 'Show password';
+        button.setAttribute('aria-pressed', String(visible));
+    });
+});
+const otpForm = document.querySelector('[data-otp-form]');
+if (otpForm) {
+    const value = otpForm.querySelector('[name="otp"]');
+    const group = otpForm.querySelector('[data-otp-digits]');
+    const digits = [...group.querySelectorAll('input')];
+    value.type = 'hidden';
+    value.removeAttribute('required');
+    group.hidden = false;
+    const sync = () => { value.value = digits.map(input => input.value).join(''); };
+    const fill = (text, start) => {
+        const code = text.replace(/[^0-9]/g, '').slice(0, 6 - start);
+        [...code].forEach((digit, offset) => { digits[start + offset].value = digit; });
+        sync();
+        digits[Math.min(5, start + code.length)].focus();
+    };
+    digits.forEach((input, index) => {
+        input.maxLength = index === 0 ? 6 : 1;
+        input.setAttribute('aria-describedby', value.getAttribute('aria-describedby'));
+        if (value.getAttribute('aria-invalid')) input.setAttribute('aria-invalid', 'true');
+        input.required = true;
+        input.pattern = '[0-9]';
+        input.addEventListener('input', () => {
+            const entered = input.value;
+            input.value = entered.replace(/[^0-9]/g, '').slice(-1);
+            if (entered.length > 1) { fill(entered, index); }
+            else { sync(); if (input.value && index < 5) digits[index + 1].focus(); }
+        });
+        input.addEventListener('paste', event => {
+            event.preventDefault();
+            fill(event.clipboardData.getData('text'), index);
+        });
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Backspace' && !input.value && index > 0) digits[index - 1].focus();
+            if (event.key === 'ArrowLeft' && index > 0) digits[index - 1].focus();
+            if (event.key === 'ArrowRight' && index < 5) digits[index + 1].focus();
+        });
+    });
+    otpForm.addEventListener('submit', sync);
+}
+const resendForm = document.querySelector('[data-resend-form]');
+if (resendForm) {
+    const button = resendForm.querySelector('[data-resend-button]');
+    const status = resendForm.querySelector('[data-resend-status]');
+    const readyAt = Date.now() + Number(resendForm.dataset.cooldown) * 1000;
+    const refresh = () => {
+        const seconds = Math.max(0, Math.ceil((readyAt - Date.now()) / 1000));
+        button.disabled = seconds > 0;
+        button.textContent = seconds ? 'Resend in ' + seconds + 's' : 'Send a new code';
+        status.textContent = seconds ? 'You can request another code when the countdown ends.' : 'No email? Check your spam folder or request a new code.';
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
+}
+document.querySelectorAll('.auth-form form').forEach(form => {
+    form.addEventListener('submit', () => {
+        if (!form.checkValidity()) return;
+        form.setAttribute('aria-busy', 'true');
+        form.querySelectorAll('button[type="submit"], button:not([type])').forEach(button => {
+            button.disabled = true;
+            button.textContent = 'Please wait...';
+        });
+    });
+});
+window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });

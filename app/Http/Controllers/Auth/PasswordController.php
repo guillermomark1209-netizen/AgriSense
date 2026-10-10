@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,8 +21,12 @@ class PasswordController extends Controller
 
     public function email(Request $request): RedirectResponse
     {
-        $request->validate(['email' => ['required', 'email']]);
-        Password::sendResetLink($request->only('email'));
+        $request->validate(['email' => ['required', 'string', 'email', 'max:255']]);
+        try {
+            Password::sendResetLink($request->only('email'));
+        } catch (\RuntimeException) {
+            return back()->with('success', 'If an account exists for that email, a password reset link has been sent.');
+        }
 
         return back()->with('success', 'If an account exists for that email, a password reset link has been sent.');
     }
@@ -33,8 +38,8 @@ class PasswordController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
-        $request->validate(['token' => ['required'], 'email' => ['required', 'email'], 'password' => ['required', 'min:12', 'confirmed']]);
-        $status = Password::reset($request->only('email', 'password', 'password_confirmation', 'token'), function ($user, $password) {
+        $request->validate(['token' => ['required', 'string'], 'email' => ['required', 'string', 'email', 'max:255'], 'password' => ['required', 'string', 'min:12', 'max:255', 'confirmed']]);
+        $status = Password::reset($request->only('email', 'password', 'password_confirmation', 'token'), function (User $user, string $password): void {
             $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
             event(new PasswordReset($user));
         });
