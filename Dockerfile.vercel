@@ -72,7 +72,10 @@ COPY Caddyfile /etc/caddy/Caddyfile
 
 ENV SERVER_NAME=:80 \
     APP_ENV=production \
-    APP_DEBUG=false
+    APP_DEBUG=false \
+    SESSION_DRIVER=database \
+    SESSION_SECURE_COOKIE=true \
+    CACHE_STORE=database
 EXPOSE 80
 # gwapoko
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]

@@ -2,6 +2,13 @@
 
 use Illuminate\Support\Str;
 
+$sessionDriver = env('SESSION_DRIVER', 'database');
+
+/** Production requests can be handled by different instances with separate local files. */
+if (env('APP_ENV', 'production') === 'production' && in_array($sessionDriver, ['file', 'array'], true)) {
+    $sessionDriver = 'database';
+}
+
 return [
 
     /*
@@ -18,7 +25,7 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'file'),
+    'driver' => $sessionDriver,
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +176,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV', 'production') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

@@ -2,6 +2,13 @@
 
 use Illuminate\Support\Str;
 
+$cacheStore = env('CACHE_STORE', 'database');
+
+/** Session locks and authentication rate limits need storage shared by production instances. */
+if (env('APP_ENV', 'production') === 'production' && in_array($cacheStore, ['file', 'array'], true)) {
+    $cacheStore = 'database';
+}
+
 return [
 
     /*
@@ -15,7 +22,7 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    'default' => $cacheStore,
 
     /*
     |--------------------------------------------------------------------------
